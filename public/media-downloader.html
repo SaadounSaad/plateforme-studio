@@ -313,7 +313,7 @@
 
 <header class="app-header">
   <div class="app-header-inner">
-    <a href="/" class="btn-studio">
+    <a href="/" id="btn-home" class="btn-studio">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
       Studio
     </a>
@@ -976,6 +976,11 @@ function toast(msg, type = '') {
   el.textContent = msg; el.className = `show ${type}`;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.className = ''; }, 3500);
+}
+
+// Adjust home link: on raw backend port there's no landing page
+if (location.port === '7880' || location.host === 'localhost:7880') {
+  document.getElementById('btn-home').href = '/media-downloader.html';
 }
 
 checkServer();
