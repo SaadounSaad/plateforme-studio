@@ -31,7 +31,11 @@ async function proxy(request: NextRequest, segments: string[]) {
     return new NextResponse(res.body, { status: res.status, headers })
   } catch {
     return NextResponse.json(
-      { error: 'Backend hors ligne. Lancer le serveur Media Downloader (node server.js).' },
+      {
+        error: 'Media backend hors ligne.',
+        hint: 'Ce service nécessite un serveur local avec yt-dlp, ffmpeg et whisper.',
+        action: 'Lancez `node media-backend/server.js` sur votre machine.',
+      },
       { status: 503 }
     )
   }
