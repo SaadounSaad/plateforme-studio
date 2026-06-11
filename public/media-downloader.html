@@ -346,7 +346,8 @@
         </div>
         <div id="server-offline" style="display:none; padding:12px 14px; border-radius:10px; border:1px solid var(--red); background:var(--red-dim); font:11px/1.5 var(--mono); color:var(--red);">
           ⚠ Backend hors ligne — Cet outil nécessite le backend local.
-          <br>Lancez <code>node media-backend/server.js</code> sur votre machine, puis accédez via <code>localhost:3000</code>.
+          <br>Lancez <code>node media-backend/server.js</code> sur votre machine.
+          <span id="offline-local-link-dl"><br><a href="http://localhost:3000/media-downloader" style="color:var(--red); text-decoration:underline; font-weight:600;">→ Ouvrir en local ↗</a></span>
         </div>
       </div>
 
@@ -461,6 +462,7 @@
       <div id="trim-offline" style="display:none; padding:12px 14px; border-radius:10px; border:1px solid var(--red); background:var(--red-dim); font:11px/1.5 var(--mono); color:var(--red);">
         ⚠ Le découpage nécessite le backend local (<code>node media-backend/server.js</code>).
         <br>Sur Vercel, la limite de payload (4.5 Mo) empêche le traitement des fichiers vidéo.
+        <span id="offline-local-link-trim"><br><a href="http://localhost:3000/media-downloader" style="color:var(--red); text-decoration:underline; font-weight:600;">→ Ouvrir en local ↗</a></span>
       </div>
 
       <div id="trim-sections">
@@ -673,6 +675,7 @@ async function startTrim() {
 let _serverOk = false, _failCount = 0, _jobRunning = false;
 async function checkServer() {
   const dot = document.getElementById('s-dot'), txt = document.getElementById('s-txt'), caps = document.getElementById('s-caps');
+  const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   try {
     const r = await fetch('/media-api/health', { signal: AbortSignal.timeout(8000) });
     if (!r.ok) throw new Error('not ok');
@@ -700,6 +703,8 @@ async function checkServer() {
       document.getElementById('dl-sections').style.display = 'none';
       document.getElementById('trim-offline').style.display = '';
       document.getElementById('trim-sections').style.display = 'none';
+      document.getElementById('offline-local-link-dl').style.display = isLocalhost ? 'none' : '';
+      document.getElementById('offline-local-link-trim').style.display = isLocalhost ? 'none' : '';
     } else {
       dot.className = 'status-dot spin';
       txt.textContent = 'Vérification…';
