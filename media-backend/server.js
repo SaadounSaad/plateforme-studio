@@ -99,6 +99,10 @@ const WHISPER_LANGS = new Set([
   'auto', 'fr', 'ar', 'en', 'es', 'de', 'it', 'pt', 'nl', 'ru', 'zh', 'ja', 'ko', 'tr',
 ]);
 
+// Audio container/codec names allowed from the client — these end up in output
+// filenames (path traversal guard) and ffmpeg/yt-dlp args.
+const AUDIO_EXTS = new Set(['mp3', 'aac', 'opus', 'm4a', 'wav', 'flac', 'ogg']);
+
 // ── security: URL validation ─────────────────────────────────────────────────
 
 // yt-dlp arg-injection guard: only accept real http(s) URLs (a valid one can
@@ -363,6 +367,7 @@ async function downloadItem(url, type, opts = {}) {
 
     } else if (type === 'audio') {
       const ext = opts.audioExt || 'mp3';
+      if (!AUDIO_EXTS.has(ext)) throw new Error('audioExt invalide');
       const args = [
         '--no-playlist', '--no-warnings',
         '-o', path.join(tmpDir, '%(title)s.%(ext)s'),
@@ -687,9 +692,15 @@ app.post('/api/trim-local', upload.single('file'), async (req, res) => {
   if (!ffmpegBin) return res.status(500).json({ error: 'ffmpeg manquant' });
 
   const inputPath = req.file.path;
+  if (type === 'audio' && !AUDIO_EXTS.has(audioExt || 'mp3')) {
+    return res.status(400).json({ error: 'audioExt invalide' });
+  }
   const ext       = type === 'audio' ? (audioExt || 'mp3') : 'mp4';
   const outName   = path.basename(req.file.originalname || 'trim', path.extname(req.file.originalname || '')).replace(/[^\w\-]/g, '_') + '_trim.' + ext;
   const outPath   = path.join(os.tmpdir(), outName);
+  if (path.dirname(path.resolve(outPath)) !== path.resolve(os.tmpdir())) {
+    return res.status(400).json({ error: 'nom de fichier invalide' });
+  }
 
   try {
     const args = ['-y'];
