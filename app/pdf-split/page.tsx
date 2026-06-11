@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, DragEvent, ChangeEvent } from "react";
+import { PDFDocument } from "pdf-lib";
+import JSZip from "jszip";
 
 type Tab = "split" | "merge";
 
@@ -16,6 +18,34 @@ function downloadBlob(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function u8ToBlob(bytes: Uint8Array, type: string): Blob {
+  // pdf-lib renvoie Uint8Array avec un buffer typed ArrayBufferLike.
+  // On isole un ArrayBuffer pur pour satisfaire les typings Blob.
+  const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new Blob([buf], { type });
+}
+
+function parseRanges(rangesStr: string, pageCount: number): Array<{ start: number; end: number }> {
+  const segments = rangesStr.replace(/,/g, ";").split(";").map((s) => s.trim()).filter(Boolean);
+  if (!segments.length) throw new Error("Aucune plage valide fournie");
+  return segments.map((seg) => {
+    if (seg.includes("-")) {
+      const [startStr, endStr] = seg.split("-", 2);
+      const start = parseInt(startStr.trim(), 10);
+      const end = parseInt(endStr.trim(), 10);
+      if (isNaN(start) || isNaN(end) || start < 1 || end < start || end > pageCount) {
+        throw new Error(`La plage '${seg}' est hors limites pour un document de ${pageCount} pages`);
+      }
+      return { start: start - 1, end: end - 1 };
+    }
+    const page = parseInt(seg, 10);
+    if (isNaN(page) || page < 1 || page > pageCount) {
+      throw new Error(`La page ${seg} est hors limites pour un document de ${pageCount} pages`);
+    }
+    return { start: page - 1, end: page - 1 };
+  });
 }
 
 function DropZone({ onFile, accept, multiple, label }: {
@@ -73,21 +103,33 @@ function SplitTab() {
     setError("");
     setLoading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("ranges", ranges);
-      const res = await fetch("/api/pdf/split", { method: "POST", body: fd });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({ error: "Erreur inconnue" }));
-        setError(json.error ?? "Erreur inconnue");
-        return;
+      const srcBytes = await file.arrayBuffer();
+      const srcDoc = await PDFDocument.load(srcBytes);
+      const pageCount = srcDoc.getPageCount();
+      const parsedRanges = parseRanges(ranges, pageCount);
+
+      if (parsedRanges.length === 1) {
+        const { start, end } = parsedRanges[0];
+        const outDoc = await PDFDocument.create();
+        const pages = await outDoc.copyPages(srcDoc, Array.from({ length: end - start + 1 }, (_, i) => start + i));
+        pages.forEach((p) => outDoc.addPage(p));
+        const outBytes = await outDoc.save();
+        downloadBlob(u8ToBlob(outBytes, "application/pdf"), "split_result.pdf");
+      } else {
+        const zip = new JSZip();
+        for (let i = 0; i < parsedRanges.length; i++) {
+          const { start, end } = parsedRanges[i];
+          const outDoc = await PDFDocument.create();
+          const pages = await outDoc.copyPages(srcDoc, Array.from({ length: end - start + 1 }, (_, j) => start + j));
+          pages.forEach((p) => outDoc.addPage(p));
+          const outBytes = await outDoc.save();
+          zip.file(`part_${i + 1}.pdf`, outBytes);
+        }
+        const zipBytes = await zip.generateAsync({ type: "uint8array" });
+        downloadBlob(u8ToBlob(zipBytes, "application/zip"), "split_results.zip");
       }
-      const blob = await res.blob();
-      const disp = res.headers.get("content-disposition") ?? "";
-      const match = disp.match(/filename="?([^"]+)"?/);
-      downloadBlob(blob, match?.[1] ?? "result.pdf");
-    } catch {
-      setError("Backend inaccessible. Le service pdf-backend est-il lancé ?");
+    } catch (err: any) {
+      setError(err?.message ?? "Échec du découpage PDF");
     } finally {
       setLoading(false);
     }
@@ -166,20 +208,17 @@ function MergeTab() {
     setError("");
     setLoading(true);
     try {
-      const fd = new FormData();
-      files.forEach((f) => fd.append("files", f.file));
-      const res = await fetch("/api/pdf/merge", { method: "POST", body: fd });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({ error: "Erreur inconnue" }));
-        setError(json.error ?? "Erreur inconnue");
-        return;
+      const outDoc = await PDFDocument.create();
+      for (const item of files) {
+        const srcBytes = await item.file.arrayBuffer();
+        const srcDoc = await PDFDocument.load(srcBytes);
+        const pages = await outDoc.copyPages(srcDoc, srcDoc.getPageIndices());
+        pages.forEach((p) => outDoc.addPage(p));
       }
-      const blob = await res.blob();
-      const disp = res.headers.get("content-disposition") ?? "";
-      const match = disp.match(/filename="?([^"]+)"?/);
-      downloadBlob(blob, match?.[1] ?? "merged.pdf");
-    } catch {
-      setError("Backend inaccessible. Le service pdf-backend est-il lancé ?");
+      const outBytes = await outDoc.save();
+      downloadBlob(u8ToBlob(outBytes, "application/pdf"), "merged.pdf");
+    } catch (err: any) {
+      setError(err?.message ?? "Échec de la fusion PDF");
     } finally {
       setLoading(false);
     }
