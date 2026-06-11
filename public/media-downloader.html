@@ -638,7 +638,11 @@ async function startTrim() {
       if (endTime)   fd.append('endTime', endTime);
       r = await fetch('/media-api/trim-local', { method: 'POST', body: fd });
     }
-    if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Erreur serveur'); }
+    if (!r.ok) {
+      let msg = r.status + ' ' + r.statusText;
+      try { const ct = r.headers.get('content-type') || ''; if (ct.includes('application/json')) { const e = await r.json(); msg = e.error || msg; } } catch {}
+      throw new Error(msg);
+    }
     const blob = await r.blob();
     const disp = r.headers.get('Content-Disposition') || '';
     const m = disp.match(/filename\*=UTF-8''([^;\s]+)/i) || disp.match(/filename="([^"]+)"/i);
@@ -658,6 +662,7 @@ async function checkServer() {
   const dot = document.getElementById('s-dot'), txt = document.getElementById('s-txt'), caps = document.getElementById('s-caps');
   try {
     const r = await fetch('/media-api/health', { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error('not ok');
     const d = await r.json();
     _serverOk = true; _failCount = 0;
     dot.className = 'status-dot on';
@@ -671,7 +676,7 @@ async function checkServer() {
     if (_failCount >= 2) {
       _serverOk = false;
       dot.className = 'status-dot off';
-      txt.textContent = 'Backend hors ligne — node server.js';
+      txt.textContent = 'Backend local requis — lancer node media-backend/server.js';
       caps.innerHTML = '';
       document.getElementById('btn-start').disabled = true;
     } else {
@@ -797,7 +802,11 @@ async function downloadIndividual(url, types, opts) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, type, ...opts })
       });
-      if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Erreur serveur'); }
+      if (!r.ok) {
+        let msg = r.status + ' ' + r.statusText;
+        try { const ct = r.headers.get('content-type') || ''; if (ct.includes('application/json')) { const e = await r.json(); msg = e.error || msg; } } catch {}
+        throw new Error(msg);
+      }
       const blob = await r.blob();
       const disp = r.headers.get('Content-Disposition') || '';
       const m = disp.match(/filename\*=UTF-8''([^;\s]+)/i) || disp.match(/filename="([^"]+)"/i);
@@ -862,6 +871,11 @@ async function startJob() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items, types, ...opts })
       });
+      if (!r.ok) {
+        let msg = r.status + ' ' + r.statusText;
+        try { const ct = r.headers.get('content-type') || ''; if (ct.includes('application/json')) { const e = await r.json(); msg = e.error || msg; } } catch {}
+        throw new Error(msg);
+      }
       const { jobId } = await r.json();
       currentJobId = jobId;
       pollJob(jobId, total);
@@ -877,6 +891,7 @@ function pollJob(jobId, total) {
   pollTimer = setInterval(async () => {
     try {
       const r = await fetch(`/media-api/batch/status/${jobId}`);
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
       const d = await r.json();
       updateQueueFromLog(d.log || [], d.done, d.total || total);
       if (d.status === 'done') {
