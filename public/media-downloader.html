@@ -978,12 +978,11 @@ function toast(msg, type = '') {
   toastTimer = setTimeout(() => { el.className = ''; }, 3500);
 }
 
-// Adjust home link: on raw backend port there's no landing page → offer close instead
+// Adjust home link: on raw backend port redirect back to online landing page
 if (location.port === '7880' || location.host === 'localhost:7880') {
   const homeBtn = document.getElementById('btn-home');
-  homeBtn.href = 'javascript:void(0)';
-  homeBtn.onclick = () => window.close();
-  homeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg> Fermer';
+  homeBtn.href = 'https://plateforme-studio.vercel.app/';
+  homeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg> Plateforme';
 }
 
 checkServer();
