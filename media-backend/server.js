@@ -690,6 +690,11 @@ apiRouter.get('/batch/download/:jobId', (req, res) => {
   });
 });
 
+function timeToSeconds(t) {
+  const parts = t.split(':').map(Number);
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+}
+
 // ── trim local file ───────────────────────────────────────────────────────────
 
 const upload = multer({ dest: os.tmpdir() });
@@ -717,7 +722,14 @@ apiRouter.post('/trim-local', upload.single('file'), async (req, res) => {
     const args = ['-y'];
     if (startTime) args.push('-ss', startTime);
     args.push('-i', inputPath);
-    if (endTime) args.push('-to', endTime);
+    if (endTime && startTime) {
+      // -to on output side counts from output timeline start (0).
+      // Since -ss before -i does not shift output timeline, compute duration manually.
+      const durationSec = timeToSeconds(endTime) - timeToSeconds(startTime);
+      args.push('-t', String(durationSec));
+    } else if (endTime) {
+      args.push('-t', String(timeToSeconds(endTime)));
+    }
     if (type === 'audio') {
       args.push('-vn', '-acodec', ext === 'mp3' ? 'libmp3lame' : ext === 'aac' ? 'aac' : ext === 'opus' ? 'libopus' : 'aac');
     } else {
