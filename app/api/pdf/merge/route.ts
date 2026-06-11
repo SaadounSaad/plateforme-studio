@@ -1,26 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { PDFDocument } from 'pdf-lib'
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
-    const response = await fetch('http://localhost:8001/api/merge', {
-      method: 'POST',
-      body: formData,
-    })
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Backend error' }))
-      return NextResponse.json({ error: error.detail }, { status: response.status })
+    const files = formData.getAll('files') as File[]
+
+    if (files.length < 2) {
+      return NextResponse.json(
+        { error: 'Au moins 2 fichiers PDF requis pour la fusion' },
+        { status: 400 }
+      )
     }
-    const blob = await response.blob()
-    const contentType = response.headers.get('content-type') || 'application/pdf'
-    const contentDisposition = response.headers.get('content-disposition') || 'attachment; filename="merged.pdf"'
-    return new NextResponse(blob, {
+
+    const mergedDoc = await PDFDocument.create()
+
+    for (const file of files) {
+      const bytes = await file.arrayBuffer()
+      const srcDoc = await PDFDocument.load(bytes)
+      const pages = await mergedDoc.copyPages(srcDoc, srcDoc.getPageIndices())
+      pages.forEach(p => mergedDoc.addPage(p))
+    }
+
+    const outBytes = await mergedDoc.save()
+    return new NextResponse(Buffer.from(outBytes), {
       headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': contentDisposition,
-      }
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'attachment; filename="merged.pdf"',
+      },
     })
-  } catch {
-    return NextResponse.json({ error: 'Backend unreachable. Is pdf-backend running?' }, { status: 503 })
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err?.message ?? 'PDF merge failed' },
+      { status: 500 }
+    )
   }
 }
