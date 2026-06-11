@@ -82,13 +82,23 @@ function hasFfmpeg() {
 
 // ── health ───────────────────────────────────────────────────────────────────
 
-app.get('/health', (_req, res) => res.json({
-  ok: true,
-  ytdlp:   !!getYtDlpBin(),
-  whisper: hasWhisper(),
-  python:  !!getPythonBin(),
-  ffmpeg:  hasFfmpeg()
-}));
+function healthHandler(_req, res) {
+  res.json({
+    ok: true,
+    ytdlp:   !!getYtDlpBin(),
+    whisper: hasWhisper(),
+    python:  !!getPythonBin(),
+    ffmpeg:  hasFfmpeg()
+  });
+}
+app.get('/health', healthHandler);
+app.get('/media-api/health', healthHandler);
+
+// ── API router (mounted on /api for Next.js proxy, and /media-api for direct access)
+const apiRouter = express.Router();
+
+app.use('/api', apiRouter);
+app.use('/media-api', apiRouter);
 
 // ── security: whisper input allowlists (templated into Python source) ─────────
 
@@ -186,7 +196,7 @@ function detectPlatform(url) {
 
 // ── info ─────────────────────────────────────────────────────────────────────
 
-app.post('/api/info', (req, res) => {
+apiRouter.post('/info', (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL manquante' });
   try { assertHttpUrl(url); } catch { return res.status(400).json({ error: 'URL invalide' }); }
@@ -518,7 +528,7 @@ print("ok")
 
 // ── single download endpoint (used by frontend for 1 item / 1 type) ──────────
 
-app.post('/api/download', async (req, res) => {
+apiRouter.post('/download', async (req, res) => {
   const { url, type, formatId, audioExt, whisperModel, whisperLang, startTime, endTime } = req.body;
   if (!url || !type) return res.status(400).json({ error: 'url et type requis' });
   try {
@@ -538,7 +548,7 @@ app.post('/api/download', async (req, res) => {
 
 // ── batch endpoint: N urls x M types → ZIP ───────────────────────────────────
 
-app.post('/api/batch', async (req, res) => {
+apiRouter.post('/batch', async (req, res) => {
   const { items, types, formatId, audioExt, whisperModel, whisperLang } = req.body;
   // items: [{ url, label }]
   // types: ['video','audio','image','text'] (selection)
@@ -590,7 +600,7 @@ app.post('/api/batch', async (req, res) => {
 
 const jobs = new Map();
 
-app.post('/api/batch/start', async (req, res) => {
+apiRouter.post('/batch/start', async (req, res) => {
   const { items, types, formatId, audioExt, whisperModel, whisperLang } = req.body;
   if (!items?.length || !types?.length) return res.status(400).json({ error: 'items et types requis' });
 
@@ -659,13 +669,13 @@ app.post('/api/batch/start', async (req, res) => {
   res.json({ jobId, total });
 });
 
-app.get('/api/batch/status/:jobId', (req, res) => {
+apiRouter.get('/batch/status/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job inconnu' });
   res.json({ status: job.status, done: job.done, total: job.total, log: job.log, error: job.error });
 });
 
-app.get('/api/batch/download/:jobId', (req, res) => {
+apiRouter.get('/batch/download/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'done') return res.status(400).json({ error: 'ZIP non prêt' });
   const stat = fs.statSync(job.zipPath);
@@ -684,7 +694,7 @@ app.get('/api/batch/download/:jobId', (req, res) => {
 
 const upload = multer({ dest: os.tmpdir() });
 
-app.post('/api/trim-local', upload.single('file'), async (req, res) => {
+apiRouter.post('/trim-local', upload.single('file'), async (req, res) => {
   const { type, audioExt, startTime, endTime } = req.body;
   if (!req.file) return res.status(400).json({ error: 'Fichier manquant' });
   if (!startTime && !endTime) return res.status(400).json({ error: 'startTime ou endTime requis' });
