@@ -344,8 +344,13 @@
           <span class="status-txt" id="s-txt">Connexion…</span>
           <div class="caps-row" id="s-caps"></div>
         </div>
+        <div id="server-offline" style="display:none; padding:12px 14px; border-radius:10px; border:1px solid var(--red); background:var(--red-dim); font:11px/1.5 var(--mono); color:var(--red);">
+          ⚠ Backend hors ligne — Cet outil nécessite le backend local.
+          <br>Lancez <code>node media-backend/server.js</code> sur votre machine, puis accédez via <code>localhost:3000</code>.
+        </div>
       </div>
 
+      <div id="dl-sections">
       <div>
         <div class="section-label">URLs</div>
         <div class="url-box">
@@ -447,11 +452,18 @@
         <span id="btn-label">Lancer</span>
       </button>
 
+      </div>
     </div>
 
     <!-- TAB: Découper -->
     <div class="tab-panel" id="tab-trim">
 
+      <div id="trim-offline" style="display:none; padding:12px 14px; border-radius:10px; border:1px solid var(--red); background:var(--red-dim); font:11px/1.5 var(--mono); color:var(--red);">
+        ⚠ Le découpage nécessite le backend local (<code>node media-backend/server.js</code>).
+        <br>Sur Vercel, la limite de payload (4.5 Mo) empêche le traitement des fichiers vidéo.
+      </div>
+
+      <div id="trim-sections">
       <div>
         <div class="section-label">Source</div>
         <div class="source-toggle">
@@ -525,6 +537,7 @@
         <span>Découper et télécharger</span>
       </button>
 
+      </div>
     </div>
 
   </aside>
@@ -671,6 +684,10 @@ async function checkServer() {
       `<span class="cap-badge ${d[k]?'ok':'off'}">${k} ${d[k]?'✓':'✗'}</span>`
     ).join('');
     if (!_jobRunning) document.getElementById('btn-start').disabled = !d.ytdlp || !getUrls().length || !getTypes().length;
+    document.getElementById('server-offline').style.display = 'none';
+    document.getElementById('dl-sections').style.display = '';
+    document.getElementById('trim-offline').style.display = 'none';
+    document.getElementById('trim-sections').style.display = '';
   } catch {
     _failCount++;
     if (_failCount >= 2) {
@@ -679,6 +696,10 @@ async function checkServer() {
       txt.textContent = 'Backend local requis — lancer node media-backend/server.js';
       caps.innerHTML = '';
       document.getElementById('btn-start').disabled = true;
+      document.getElementById('server-offline').style.display = '';
+      document.getElementById('dl-sections').style.display = 'none';
+      document.getElementById('trim-offline').style.display = '';
+      document.getElementById('trim-sections').style.display = 'none';
     } else {
       dot.className = 'status-dot spin';
       txt.textContent = 'Vérification…';
