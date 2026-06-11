@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from 'next/server'
+
+const BACKEND = 'http://localhost:7880'
+
+// Frontend hits /media-api/<x>. Map to backend:
+//   health        -> /health
+//   <anything else> -> /api/<anything else>
+function targetUrl(segments: string[], search: string) {
+  const path = segments.join('/')
+  const backendPath = path === 'health' ? '/health' : `/api/${path}`
+  return `${BACKEND}${backendPath}${search}`
+}
+
+async function proxy(request: NextRequest, segments: string[]) {
+  const url = targetUrl(segments, request.nextUrl.search)
+  try {
+    const init: RequestInit = { method: request.method }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      const ct = request.headers.get('content-type') || ''
+      // Forward body as-is; preserve content-type for JSON and multipart
+      init.body = await request.arrayBuffer()
+      init.headers = ct ? { 'content-type': ct } : undefined
+    }
+    const res = await fetch(url, init)
+    // Stream the response body through (videos / zips can be large)
+    const headers = new Headers()
+    const cd = res.headers.get('content-disposition')
+    const ctype = res.headers.get('content-type')
+    if (cd) headers.set('Content-Disposition', cd)
+    if (ctype) headers.set('Content-Type', ctype)
+    return new NextResponse(res.body, { status: res.status, headers })
+  } catch {
+    return NextResponse.json(
+      { error: 'Backend hors ligne. Lancer le serveur Media Downloader (node server.js).' },
+      { status: 503 }
+    )
+  }
+}
+
+export async function GET(request: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  const { path } = await ctx.params
+  return proxy(request, path)
+}
+
+export async function POST(request: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  const { path } = await ctx.params
+  return proxy(request, path)
+}

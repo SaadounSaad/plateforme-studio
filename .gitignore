@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+media-backend/node_modules/
+pdf-backend/__pycache__/
+*.pyc
+media-backend/backend.log

@@ -1,5 +1,5 @@
 {
-  "name": "studio",
+  "name": "plateforme-studio",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "html-docx-js": "^0.3.1",
+    "marked": "^18.0.5",
     "next": "16.2.7",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

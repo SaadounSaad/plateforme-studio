@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Media Downloader — Plateforme Studio</title>
+<script>(function(){var t=localStorage.getItem('ps-theme');document.documentElement.classList.add(t==='dark'?'dark':'light');})()</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  .dark {
+    --bg: #0c0a07; --surface: #1b1812; --surface2: #221d14; --surface3: #2e2820;
+    --line: #2b2519; --line-lit: #3a3226; --fg: #ece6d8; --muted: #8a8170;
+    --subtle: #3e3628; --gold: #c9a84c; --gold-dim: rgba(201,168,76,.14);
+    --gold-glow: rgba(201,168,76,.12);
+  }
+  .light {
+    --bg: #efe9dc; --surface: #faf6ee; --surface2: #f4ecdb; --surface3: #ede3ce;
+    --line: #e2d8c4; --line-lit: #cfc5ae; --fg: #2b2417; --muted: #71685a;
+    --subtle: #d8cfbc; --gold: #9a7a2c; --gold-dim: rgba(154,122,44,.14);
+    --gold-glow: rgba(154,122,44,.10);
+  }
+  html {
+    --green: #5a9a38; --green-dim: rgba(90,154,56,.15);
+    --red: #b84070; --red-dim: rgba(184,64,112,.15);
+    --serif: 'Instrument Serif', Georgia, serif;
+    --sans: 'Inter', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--fg); font: 14px/1.6 var(--sans); }
+
+  /* ── Header ──────────────────────────────────────────────────────── */
+  .app-header {
+    position: sticky; top: 0; z-index: 40;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  .app-header-inner {
+    max-width: 1200px; margin: 0 auto;
+    display: flex; align-items: center; gap: 12px; padding: 14px 24px;
+  }
+  .btn-studio {
+    display: flex; align-items: center; gap: 5px;
+    font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); border: 1px solid var(--line); border-radius: 8px;
+    padding: 5px 12px; text-decoration: none; background: transparent;
+    cursor: pointer; transition: all .15s; flex-shrink: 0;
+  }
+  .btn-studio:hover { color: var(--fg); border-color: var(--line-lit); }
+  .header-title { font: italic normal 18px/1 var(--serif); color: var(--gold); flex: 1; }
+  .btn-theme {
+    background: transparent; border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 8px; cursor: pointer; color: var(--muted); transition: all .15s; font-size: 14px; line-height: 1;
+  }
+  .btn-theme:hover { border-color: var(--line-lit); color: var(--fg); }
+
+  /* ── Layout ──────────────────────────────────────────────────────── */
+  .layout {
+    display: grid; grid-template-columns: 380px 1fr;
+    min-height: calc(100vh - 57px); max-width: 1200px; margin: 0 auto;
+  }
+
+  /* ── Panel left ──────────────────────────────────────────────────── */
+  .panel-left {
+    border-right: 1px solid var(--line); padding: 28px 24px;
+    display: flex; flex-direction: column; gap: 24px; overflow-y: auto;
+  }
+
+  /* ── Panel right ─────────────────────────────────────────────────── */
+  .panel-right {
+    padding: 28px 32px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto;
+  }
+
+  /* ── Section label ───────────────────────────────────────────────── */
+  .section-label {
+    font: 500 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+  /* ── Tab bar ─────────────────────────────────────────────────────── */
+  .tab-bar { display: flex; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+  .tab-btn {
+    flex: 1; padding: 7px 10px; background: transparent;
+    border: 1px solid var(--line); border-radius: 8px; color: var(--muted);
+    font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    cursor: pointer; transition: all .2s;
+  }
+  .tab-btn:hover { border-color: var(--line-lit); color: var(--fg); }
+  .tab-btn.active { border-color: var(--gold); color: var(--gold); background: var(--gold-dim); }
+  .tab-panel { display: none; flex-direction: column; gap: 24px; }
+  .tab-panel.active { display: flex; }
+
+  /* ── Status strip ────────────────────────────────────────────────── */
+  .status-strip {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--subtle);
+    flex-shrink: 0; transition: background .3s, box-shadow .3s;
+  }
+  .status-dot.on  { background: var(--green); box-shadow: 0 0 5px var(--green); }
+  .status-dot.off { background: var(--red);   box-shadow: 0 0 5px var(--red); }
+  .status-dot.spin { animation: blink 1s ease infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+  .status-txt { font: 11px/1 var(--mono); color: var(--muted); flex: 1; }
+  .caps-row { display: flex; gap: 6px; margin-left: auto; }
+  .cap-badge {
+    font: 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 999px; border: 1px solid;
+  }
+  .cap-badge.ok  { border-color: color-mix(in srgb,var(--green) 45%,transparent); color: var(--green); }
+  .cap-badge.off { border-color: var(--line); color: var(--subtle); }
+
+  /* ── URL input ───────────────────────────────────────────────────── */
+  .url-box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .url-box textarea {
+    width: 100%; min-height: 100px; background: transparent; border: none; outline: none;
+    resize: vertical; padding: 14px 16px; font: 12px/1.7 var(--mono); color: var(--fg);
+  }
+  .url-box textarea::placeholder { color: var(--muted); }
+  .url-box-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; border-top: 1px solid var(--line);
+  }
+  .url-count { font: 10px/1 var(--mono); color: var(--muted); }
+  .btn-sm {
+    font: 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line);
+    background: transparent; color: var(--muted); cursor: pointer; transition: all .2s;
+  }
+  .btn-sm:hover { border-color: var(--gold); color: var(--gold); }
+
+  /* ── Type grid ───────────────────────────────────────────────────── */
+  .type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .type-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 12px 10px; cursor: pointer; transition: border-color .2s, background .2s;
+    user-select: none; position: relative;
+  }
+  .type-card:hover { border-color: var(--line-lit); }
+  .type-card.active { border-color: var(--gold); background: var(--gold-dim); }
+  .type-card .tc-icon { font-size: 16px; margin-bottom: 5px; display: block; }
+  .type-card .tc-name { font: 600 12px/1 var(--sans); display: block; margin-bottom: 2px; }
+  .type-card .tc-desc { font: 10.5px/1.4 var(--sans); color: var(--muted); display: block; }
+  .type-card .tc-check {
+    position: absolute; top: 8px; right: 8px;
+    width: 15px; height: 15px; border-radius: 50%;
+    border: 1.5px solid var(--line); display: grid; place-items: center;
+    font: 700 8px/1 var(--sans); transition: all .2s;
+  }
+  .type-card.active .tc-check { background: var(--gold); border-color: var(--gold); color: var(--bg); }
+  .type-card.active .tc-check::after { content: '✓'; }
+
+  /* ── Options box ─────────────────────────────────────────────────── */
+  .options-box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .options-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 14px; border-bottom: 1px solid var(--line);
+  }
+  .options-row:last-child { border-bottom: none; }
+  .opt-label { font: 10px/1 var(--mono); color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+  select {
+    background: var(--surface2); border: 1px solid var(--line-lit); border-radius: 6px;
+    padding: 5px 10px; font: 11px/1 var(--mono); color: var(--fg);
+    outline: none; cursor: pointer; transition: border-color .2s;
+  }
+  select:focus { border-color: var(--gold); }
+  select option { background: var(--surface2); }
+
+  /* ── Buttons ─────────────────────────────────────────────────────── */
+  .btn-primary {
+    width: 100%; padding: 13px; border-radius: 999px;
+    background: var(--gold); color: var(--bg);
+    font: 600 12px/1 var(--sans); letter-spacing: .04em; border: none; cursor: pointer;
+    transition: opacity .2s, box-shadow .2s, transform .15s;
+    box-shadow: 0 0 24px var(--gold-glow);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-primary:hover:not(:disabled) { opacity: .85; transform: translateY(-1px); }
+  .btn-primary:active:not(:disabled) { transform: none; }
+  .btn-primary:disabled { opacity: .35; cursor: not-allowed; box-shadow: none; transform: none; }
+  .btn-outline {
+    width: 100%; padding: 12px; border-radius: 999px;
+    border: 1px solid var(--gold); background: transparent; color: var(--gold);
+    font: 600 11px/1 var(--sans); letter-spacing: .04em; cursor: pointer; transition: all .2s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-outline:hover { background: var(--gold-dim); }
+  .btn-outline:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* ── Empty state ─────────────────────────────────────────────────── */
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; gap: 12px; opacity: .4;
+  }
+  .empty-state h2 { font: italic normal 24px/1.1 var(--serif); }
+  .empty-state p { font: 12.5px/1.6 var(--sans); color: var(--muted); max-width: 28ch; }
+
+  /* ── Queue ───────────────────────────────────────────────────────── */
+  .queue-header { display: flex; align-items: baseline; justify-content: space-between; }
+  .queue-title { font: italic normal 20px/1.1 var(--serif); }
+  .queue-meta { font: 11px/1 var(--mono); color: var(--muted); }
+
+  .progress-global {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .pg-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .pg-label { font: 11px/1 var(--mono); color: var(--muted); }
+  .pg-count { font: 500 11px/1 var(--mono); color: var(--gold); }
+  .pg-track { height: 3px; background: var(--subtle); border-radius: 999px; overflow: hidden; }
+  .pg-fill {
+    height: 100%; border-radius: 999px; width: 0%; transition: width .4s ease;
+    background: linear-gradient(90deg, var(--gold), color-mix(in srgb, var(--gold) 75%, white));
+  }
+
+  .queue-list { display: flex; flex-direction: column; gap: 10px; }
+  .q-item {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; transition: border-color .3s;
+  }
+  .q-item.processing { border-color: color-mix(in srgb,var(--gold) 40%,transparent); }
+  .q-item.done       { border-color: color-mix(in srgb,var(--green) 40%,transparent); }
+  .q-item.error      { border-color: color-mix(in srgb,var(--red) 40%,transparent); }
+  .q-item-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+  .q-platform {
+    width: 26px; height: 26px; border-radius: 7px;
+    display: grid; place-items: center; font-size: 12px; flex-shrink: 0;
+    background: var(--surface2); border: 1px solid var(--line);
+  }
+  .q-info { flex: 1; min-width: 0; }
+  .q-title { font: 500 12px/1.3 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+  .q-url { font: 10px/1 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-status-icon { font-size: 14px; flex-shrink: 0; margin-top: 2px; }
+  .q-types { display: flex; flex-wrap: wrap; gap: 5px; }
+  .q-type-pill {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
+    font: 9.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); transition: all .3s;
+  }
+  .q-type-pill .pill-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--subtle); transition: background .3s; }
+  .q-type-pill.processing { border-color: color-mix(in srgb,var(--gold) 50%,transparent); color: var(--gold); }
+  .q-type-pill.processing .pill-dot { background: var(--gold); animation: blink .8s ease infinite; }
+  .q-type-pill.done  { border-color: color-mix(in srgb,var(--green) 40%,transparent); color: var(--green); }
+  .q-type-pill.done  .pill-dot { background: var(--green); }
+  .q-type-pill.error { border-color: color-mix(in srgb,var(--red) 40%,transparent); color: var(--red); }
+  .q-type-pill.error .pill-dot { background: var(--red); }
+  .q-error {
+    margin-top: 7px; padding: 6px 10px; border-radius: 6px;
+    background: var(--red-dim); font: 10.5px/1.5 var(--mono); color: var(--red); display: none;
+  }
+  .q-item.error .q-error { display: block; }
+
+  /* ── Toast ───────────────────────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(16px);
+    background: var(--surface2); border: 1px solid var(--line-lit);
+    border-radius: 999px; padding: 8px 18px;
+    font: 11.5px/1 var(--mono); color: var(--fg);
+    opacity: 0; transition: all .3s; pointer-events: none; z-index: 100; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err  { border-color: color-mix(in srgb,var(--red) 50%,transparent); color: var(--red); }
+  #toast.ok   { border-color: color-mix(in srgb,var(--green) 50%,transparent); color: var(--green); }
+
+  /* ── Trim tab ────────────────────────────────────────────────────── */
+  .source-toggle { display: flex; gap: 6px; }
+  .src-btn {
+    flex: 1; padding: 7px; border-radius: 8px; border: 1px solid var(--line);
+    background: transparent; color: var(--muted); font: 500 11px/1 var(--mono);
+    letter-spacing: .08em; text-transform: uppercase; cursor: pointer; transition: all .2s;
+  }
+  .src-btn:hover { border-color: var(--line-lit); color: var(--fg); }
+  .src-btn.active { border-color: var(--gold); color: var(--gold); background: var(--gold-dim); }
+  .file-drop {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 60px; border: 1px dashed var(--line-lit); border-radius: 10px;
+    cursor: pointer; padding: 12px 16px; font: 11.5px/1.4 var(--mono); color: var(--muted);
+    text-align: center; transition: border-color .2s, color .2s;
+  }
+  .file-drop:hover { border-color: var(--gold); color: var(--fg); }
+  .file-drop.has-file { border-color: var(--green); color: var(--green); }
+  .time-pickers { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .time-picker-group { display: flex; flex-direction: column; gap: 4px; }
+  .time-lbl { font: 9.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .time-fields { display: flex; align-items: center; gap: 3px; }
+  .tfield {
+    width: 42px; padding: 5px 4px; text-align: center;
+    background: var(--surface2); border: 1px solid var(--line); border-radius: 6px;
+    color: var(--fg); font: 13px var(--mono); outline: none; transition: border-color .2s;
+    -moz-appearance: textfield;
+  }
+  .tfield::-webkit-inner-spin-button, .tfield::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .tfield:focus { border-color: var(--gold); }
+  .tcolon { color: var(--muted); font: 14px var(--mono); }
+  .time-arrow { color: var(--muted); font: 18px var(--mono); margin-top: 14px; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    .panel-left { border-right: none; border-bottom: 1px solid var(--line); }
+    .app-header-inner, .panel-left, .panel-right { padding-left: 16px; padding-right: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-header-inner">
+    <a href="/" class="btn-studio">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      Studio
+    </a>
+    <span class="header-title">Media Downloader</span>
+    <button class="btn-theme" id="btn-theme" onclick="toggleTheme()">
+      <span id="theme-icon">☀</span>
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ══ LEFT PANEL ══ -->
+  <aside class="panel-left">
+
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('download')">Télécharger</button>
+      <button class="tab-btn" onclick="switchTab('trim')">Découper</button>
+    </div>
+
+    <!-- TAB: Télécharger -->
+    <div class="tab-panel active" id="tab-download">
+
+      <div>
+        <div class="section-label">Serveur</div>
+        <div class="status-strip">
+          <div class="status-dot spin" id="s-dot"></div>
+          <span class="status-txt" id="s-txt">Connexion…</span>
+          <div class="caps-row" id="s-caps"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">URLs</div>
+        <div class="url-box">
+          <textarea id="url-area" placeholder="https://www.youtube.com/watch?v=…&#10;https://www.instagram.com/p/…&#10;https://x.com/user/status/…&#10;&#10;Une URL par ligne"></textarea>
+          <div class="url-box-footer">
+            <span class="url-count" id="url-count">0 URL</span>
+            <input type="file" id="file-input" accept=".txt" style="display:none">
+            <button class="btn-sm" onclick="document.getElementById('file-input').click()">Importer .txt</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Extraire</div>
+        <div class="type-grid">
+          <div class="type-card active" data-type="video" onclick="toggleType(this)">
+            <span class="tc-icon">🎬</span>
+            <span class="tc-name">Vidéo</span>
+            <span class="tc-desc">MP4 avec audio</span>
+            <div class="tc-check"></div>
+          </div>
+          <div class="type-card" data-type="audio" onclick="toggleType(this)">
+            <span class="tc-icon">🎵</span>
+            <span class="tc-name">Audio</span>
+            <span class="tc-desc">MP3 / AAC / OPUS</span>
+            <div class="tc-check"></div>
+          </div>
+          <div class="type-card" data-type="text" onclick="toggleType(this)">
+            <span class="tc-icon">📝</span>
+            <span class="tc-name">Texte</span>
+            <span class="tc-desc">Sous-titres / transcription</span>
+            <div class="tc-check"></div>
+          </div>
+          <div class="type-card" data-type="image" onclick="toggleType(this)">
+            <span class="tc-icon">🖼</span>
+            <span class="tc-name">Image</span>
+            <span class="tc-desc">Thumbnail / photo</span>
+            <div class="tc-check"></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Options</div>
+        <div class="options-box">
+          <div class="options-row">
+            <span class="opt-label">Qualité vidéo</span>
+            <select id="opt-vq">
+              <option value="">Meilleure dispo</option>
+              <option value="1080">1080p</option>
+              <option value="720">720p</option>
+              <option value="480">480p</option>
+            </select>
+          </div>
+          <div class="options-row">
+            <span class="opt-label">Format audio</span>
+            <select id="opt-af">
+              <option value="mp3">MP3</option>
+              <option value="aac">AAC</option>
+              <option value="opus">OPUS</option>
+              <option value="m4a">M4A</option>
+            </select>
+          </div>
+          <div class="options-row">
+            <span class="opt-label">Whisper</span>
+            <select id="opt-wm">
+              <option value="tiny">tiny — rapide</option>
+              <option value="base" selected>base — équilibré</option>
+              <option value="small">small — précis</option>
+              <option value="medium">medium — haute qualité</option>
+            </select>
+          </div>
+          <div class="options-row">
+            <span class="opt-label">Langue (Whisper)</span>
+            <select id="opt-wl">
+              <option value="auto">Auto-détection</option>
+              <option value="fr">Français</option>
+              <option value="ar">Arabe</option>
+              <option value="en">Anglais</option>
+              <option value="es">Espagnol</option>
+              <option value="de">Allemand</option>
+            </select>
+          </div>
+          <div class="options-row">
+            <span class="opt-label">Si plusieurs items</span>
+            <select id="opt-delivery">
+              <option value="individual">Téléchargement individuel</option>
+              <option value="zip">ZIP groupé</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <input type="hidden" id="opt-start" value="">
+      <input type="hidden" id="opt-end" value="">
+
+      <button class="btn-primary" id="btn-start" disabled onclick="startJob()">
+        <span>▶</span>
+        <span id="btn-label">Lancer</span>
+      </button>
+
+    </div>
+
+    <!-- TAB: Découper -->
+    <div class="tab-panel" id="tab-trim">
+
+      <div>
+        <div class="section-label">Source</div>
+        <div class="source-toggle">
+          <button class="src-btn active" id="src-url-btn" onclick="setTrimSource('url')">URL</button>
+          <button class="src-btn" id="src-file-btn" onclick="setTrimSource('file')">Fichier local</button>
+        </div>
+        <div id="trim-src-url" style="margin-top:10px">
+          <div class="url-box">
+            <textarea id="trim-url" rows="2" placeholder="https://www.youtube.com/watch?v=…" style="resize:none"></textarea>
+          </div>
+        </div>
+        <div id="trim-src-file" style="display:none; margin-top:10px">
+          <label class="file-drop" id="trim-file-label">
+            <input type="file" id="trim-file" accept="video/*,audio/*" style="display:none" onchange="onTrimFileChange(this)">
+            <span id="trim-file-name">Cliquer ou glisser un fichier vidéo / audio</span>
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Segment</div>
+        <div class="time-pickers">
+          <div class="time-picker-group">
+            <span class="time-lbl">Début</span>
+            <div class="time-fields">
+              <input class="tfield" type="number" id="ts-h" min="0" placeholder="HH" oninput="autoTab(this,'ts-m')">
+              <span class="tcolon">:</span>
+              <input class="tfield" type="number" id="ts-m" min="0" max="59" placeholder="MM" oninput="autoTab(this,'ts-s')">
+              <span class="tcolon">:</span>
+              <input class="tfield" type="number" id="ts-s" min="0" max="59" placeholder="SS">
+            </div>
+          </div>
+          <span class="time-arrow">→</span>
+          <div class="time-picker-group">
+            <span class="time-lbl">Fin</span>
+            <div class="time-fields">
+              <input class="tfield" type="number" id="te-h" min="0" placeholder="HH" oninput="autoTab(this,'te-m')">
+              <span class="tcolon">:</span>
+              <input class="tfield" type="number" id="te-m" min="0" max="59" placeholder="MM" oninput="autoTab(this,'te-s')">
+              <span class="tcolon">:</span>
+              <input class="tfield" type="number" id="te-s" min="0" max="59" placeholder="SS">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Format de sortie</div>
+        <div class="options-box">
+          <div class="options-row">
+            <span class="opt-label">Type</span>
+            <select id="trim-type" onchange="onTrimTypeChange()">
+              <option value="video">Vidéo (MP4)</option>
+              <option value="audio">Audio</option>
+            </select>
+          </div>
+          <div class="options-row" id="trim-af-row" style="display:none">
+            <span class="opt-label">Format audio</span>
+            <select id="trim-af">
+              <option value="mp3">MP3</option>
+              <option value="aac">AAC</option>
+              <option value="opus">OPUS</option>
+              <option value="m4a">M4A</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="btn-trim" onclick="startTrim()">
+        <span>✂</span>
+        <span>Découper et télécharger</span>
+      </button>
+
+    </div>
+
+  </aside>
+
+  <!-- ══ RIGHT PANEL ══ -->
+  <main class="panel-right">
+
+    <div class="empty-state" id="empty-state">
+      <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+        <rect x="6" y="6" width="44" height="44" stroke="var(--gold)" stroke-width="0.8"/>
+        <rect x="6" y="6" width="44" height="44" transform="rotate(45,28,28)" stroke="var(--gold)" stroke-width="0.8"/>
+        <circle cx="28" cy="28" r="14" stroke="var(--gold)" stroke-width="0.8"/>
+      </svg>
+      <h2>Aucune tâche en cours</h2>
+      <p>Saisissez une ou plusieurs URLs, choisissez les types, puis lancez.</p>
+    </div>
+
+    <div id="queue-view" style="display:none; flex-direction:column; gap:16px">
+      <div class="queue-header">
+        <span class="queue-title" id="q-title">File de traitement</span>
+        <span class="queue-meta" id="q-meta"></span>
+      </div>
+      <div class="progress-global" id="progress-global" style="display:none">
+        <div class="pg-top">
+          <span class="pg-label" id="pg-label">Traitement en cours…</span>
+          <span class="pg-count" id="pg-count">0 / 0</span>
+        </div>
+        <div class="pg-track"><div class="pg-fill" id="pg-fill"></div></div>
+      </div>
+      <div class="queue-list" id="queue-list"></div>
+      <button class="btn-outline" id="btn-zip" style="display:none" disabled onclick="downloadZip()">
+        ⬇ Télécharger le ZIP
+      </button>
+    </div>
+
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Theme ─────────────────────────────────────────────────────────────────────
+function applyTheme(t) {
+  document.documentElement.classList.toggle('dark', t === 'dark');
+  document.documentElement.classList.toggle('light', t !== 'dark');
+  document.getElementById('theme-icon').textContent = t === 'dark' ? '☀' : '☾';
+}
+function toggleTheme() {
+  const next = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
+  localStorage.setItem('ps-theme', next);
+  applyTheme(next);
+}
+applyTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', ['download','trim'][i] === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+}
+
+// ── Trim ──────────────────────────────────────────────────────────────────────
+let _trimSource = 'url';
+function setTrimSource(src) {
+  _trimSource = src;
+  document.getElementById('src-url-btn').classList.toggle('active', src === 'url');
+  document.getElementById('src-file-btn').classList.toggle('active', src === 'file');
+  document.getElementById('trim-src-url').style.display  = src === 'url'  ? '' : 'none';
+  document.getElementById('trim-src-file').style.display = src === 'file' ? '' : 'none';
+}
+function onTrimFileChange(input) {
+  if (input.files[0]) {
+    document.getElementById('trim-file-name').textContent = input.files[0].name;
+    document.getElementById('trim-file-label').classList.add('has-file');
+  }
+}
+function onTrimTypeChange() {
+  document.getElementById('trim-af-row').style.display =
+    document.getElementById('trim-type').value === 'audio' ? '' : 'none';
+}
+function autoTab(el, nextId) { if (el.value.length >= 2) document.getElementById(nextId)?.focus(); }
+function getTimeStr(h, m, s) {
+  const hv = parseInt(h)||0, mv = parseInt(m)||0, sv = parseInt(s)||0;
+  if (!hv && !mv && !sv) return '';
+  return `${hv}:${String(mv).padStart(2,'0')}:${String(sv).padStart(2,'0')}`;
+}
+async function startTrim() {
+  const type      = document.getElementById('trim-type').value;
+  const audioExt  = document.getElementById('trim-af').value;
+  const startTime = getTimeStr(document.getElementById('ts-h').value, document.getElementById('ts-m').value, document.getElementById('ts-s').value);
+  const endTime   = getTimeStr(document.getElementById('te-h').value, document.getElementById('te-m').value, document.getElementById('te-s').value);
+  if (!startTime && !endTime) { toast('Indique au moins Début ou Fin', 'err'); return; }
+  const btn = document.getElementById('btn-trim');
+  btn.disabled = true;
+  btn.querySelector('span:last-child').textContent = 'Traitement…';
+  toast('Découpage en cours…');
+  try {
+    let r;
+    if (_trimSource === 'url') {
+      const url = document.getElementById('trim-url').value.trim();
+      if (!url) { toast('URL manquante', 'err'); return; }
+      r = await fetch('/media-api/download', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, type, audioExt, startTime: startTime||undefined, endTime: endTime||undefined })
+      });
+    } else {
+      const file = document.getElementById('trim-file').files[0];
+      if (!file) { toast('Aucun fichier sélectionné', 'err'); return; }
+      const fd = new FormData();
+      fd.append('file', file); fd.append('type', type); fd.append('audioExt', audioExt);
+      if (startTime) fd.append('startTime', startTime);
+      if (endTime)   fd.append('endTime', endTime);
+      r = await fetch('/media-api/trim-local', { method: 'POST', body: fd });
+    }
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Erreur serveur'); }
+    const blob = await r.blob();
+    const disp = r.headers.get('Content-Disposition') || '';
+    const m = disp.match(/filename\*=UTF-8''([^;\s]+)/i) || disp.match(/filename="([^"]+)"/i);
+    triggerDownload(blob, m ? decodeURIComponent(m[1]) : `trim.${type === 'video' ? 'mp4' : audioExt}`);
+    toast('Téléchargement prêt !', 'ok');
+  } catch (err) {
+    toast('Erreur : ' + err.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.querySelector('span:last-child').textContent = 'Découper et télécharger';
+  }
+}
+
+// ── Server health ─────────────────────────────────────────────────────────────
+let _serverOk = false, _failCount = 0, _jobRunning = false;
+async function checkServer() {
+  const dot = document.getElementById('s-dot'), txt = document.getElementById('s-txt'), caps = document.getElementById('s-caps');
+  try {
+    const r = await fetch('/media-api/health', { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    _serverOk = true; _failCount = 0;
+    dot.className = 'status-dot on';
+    txt.textContent = 'Serveur connecté';
+    caps.innerHTML = ['yt-dlp','whisper','ffmpeg'].map(k =>
+      `<span class="cap-badge ${d[k]?'ok':'off'}">${k} ${d[k]?'✓':'✗'}</span>`
+    ).join('');
+    if (!_jobRunning) document.getElementById('btn-start').disabled = !d.ytdlp || !getUrls().length || !getTypes().length;
+  } catch {
+    _failCount++;
+    if (_failCount >= 2) {
+      _serverOk = false;
+      dot.className = 'status-dot off';
+      txt.textContent = 'Backend hors ligne — node server.js';
+      caps.innerHTML = '';
+      document.getElementById('btn-start').disabled = true;
+    } else {
+      dot.className = 'status-dot spin';
+      txt.textContent = 'Vérification…';
+    }
+  }
+}
+
+// ── URL parsing ───────────────────────────────────────────────────────────────
+function getUrls() {
+  return document.getElementById('url-area').value.split('\n')
+    .map(l => l.trim()).filter(l => l && (l.startsWith('http://') || l.startsWith('https://')));
+}
+document.getElementById('url-area').addEventListener('input', () => {
+  const urls = getUrls();
+  document.getElementById('url-count').textContent = `${urls.length} URL${urls.length !== 1 ? 's' : ''}`;
+  refreshStartBtn();
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const area = document.getElementById('url-area');
+    area.value = area.value.trim() ? area.value.trim() + '\n' + ev.target.result : ev.target.result;
+    area.dispatchEvent(new Event('input'));
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// ── Type toggle ───────────────────────────────────────────────────────────────
+function toggleType(card) { card.classList.toggle('active'); refreshStartBtn(); }
+function getTypes() { return [...document.querySelectorAll('.type-card.active')].map(c => c.dataset.type); }
+function refreshStartBtn() {
+  const urls = getUrls().length, types = getTypes().length, total = urls * types;
+  document.getElementById('btn-start').disabled = !urls || !types;
+  document.getElementById('btn-label').textContent = total > 1 ? `Lancer (${total} tâches)` : 'Lancer';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function platformIcon(url) {
+  if (/youtube|youtu\.be/.test(url)) return '▶';
+  if (/instagram/.test(url)) return '◈';
+  if (/twitter|x\.com/.test(url)) return '✕';
+  return '◎';
+}
+function typeLabel(t) { return { video:'Vidéo', audio:'Audio', text:'Texte', image:'Image' }[t] || t; }
+
+// ── Build queue UI ────────────────────────────────────────────────────────────
+function buildQueueUI(items, types) {
+  const list = document.getElementById('queue-list');
+  list.innerHTML = '';
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'q-item';
+    div.id = `qi-${encodeURIComponent(item.url)}`;
+    div.innerHTML = `
+      <div class="q-item-top">
+        <div class="q-platform">${platformIcon(item.url)}</div>
+        <div class="q-info">
+          <div class="q-title">${item.label || 'En attente…'}</div>
+          <div class="q-url">${item.url}</div>
+        </div>
+        <div class="q-status-icon" id="si-${encodeURIComponent(item.url)}">⏳</div>
+      </div>
+      <div class="q-types">${types.map(t =>
+        `<span class="q-type-pill pending" id="pill-${encodeURIComponent(item.url)}-${t}"><span class="pill-dot"></span>${typeLabel(t)}</span>`
+      ).join('')}</div>
+      <div class="q-error" id="qe-${encodeURIComponent(item.url)}"></div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+// ── Update queue from log ─────────────────────────────────────────────────────
+function updateQueueFromLog(log, done, total) {
+  const stateMap = {};
+  log.forEach(e => { stateMap[e.url + '|' + e.type] = e; });
+  const urlCounts = {};
+  log.forEach(e => {
+    if (!urlCounts[e.url]) urlCounts[e.url] = { done: 0, error: 0, total: 0 };
+    urlCounts[e.url].total++;
+    if (e.status === 'done')  urlCounts[e.url].done++;
+    if (e.status === 'error') urlCounts[e.url].error++;
+  });
+  Object.values(stateMap).forEach(entry => {
+    const pill = document.getElementById(`pill-${encodeURIComponent(entry.url)}-${entry.type}`);
+    if (pill) pill.className = `q-type-pill ${entry.status}`;
+  });
+  Object.entries(urlCounts).forEach(([url, counts]) => {
+    const urlEnc = encodeURIComponent(url);
+    const item = document.getElementById(`qi-${urlEnc}`);
+    const icon = document.getElementById(`si-${urlEnc}`);
+    if (!item) return;
+    if (counts.done + counts.error === counts.total) {
+      item.className = counts.error > 0 ? 'q-item error' : 'q-item done';
+      if (icon) icon.textContent = counts.error > 0 ? '⚠' : '✓';
+      const lastErr = log.filter(e => e.url === url && e.status === 'error').map(e => e.error).pop();
+      const errEl = document.getElementById(`qe-${urlEnc}`);
+      if (errEl && lastErr) errEl.textContent = lastErr;
+    } else if (counts.done + counts.error > 0) {
+      item.className = 'q-item processing';
+      if (icon) icon.textContent = '⟳';
+    }
+  });
+  document.getElementById('pg-fill').style.width = (total > 0 ? Math.round(done/total*100) : 0) + '%';
+  document.getElementById('pg-count').textContent = `${done} / ${total}`;
+  document.getElementById('pg-label').textContent = done < total ? 'Traitement en cours…' : 'Terminé';
+}
+
+// ── Individual download ───────────────────────────────────────────────────────
+async function downloadIndividual(url, types, opts) {
+  const urlEnc = encodeURIComponent(url);
+  const item = document.getElementById(`qi-${urlEnc}`);
+  if (item) item.className = 'q-item processing';
+  let anyError = false;
+  for (const type of types) {
+    const pill = document.getElementById(`pill-${urlEnc}-${type}`);
+    if (pill) pill.className = 'q-type-pill processing';
+    try {
+      const r = await fetch('/media-api/download', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, type, ...opts })
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Erreur serveur'); }
+      const blob = await r.blob();
+      const disp = r.headers.get('Content-Disposition') || '';
+      const m = disp.match(/filename\*=UTF-8''([^;\s]+)/i) || disp.match(/filename="([^"]+)"/i);
+      const ext = type==='video'?'mp4':type==='audio'?opts.audioExt||'mp3':type==='image'?'jpg':'txt';
+      triggerDownload(blob, m ? decodeURIComponent(m[1]) : `download_${type}.${ext}`);
+      if (pill) pill.className = 'q-type-pill done';
+    } catch (err) {
+      if (pill) pill.className = 'q-type-pill error';
+      const errEl = document.getElementById(`qe-${urlEnc}`);
+      if (errEl) errEl.textContent = err.message;
+      anyError = true;
+    }
+    await new Promise(r => setTimeout(r, 800));
+  }
+  if (item) item.className = anyError ? 'q-item error' : 'q-item done';
+  const icon = document.getElementById(`si-${urlEnc}`);
+  if (icon) icon.textContent = anyError ? '⚠' : '✓';
+}
+
+// ── Start job ─────────────────────────────────────────────────────────────────
+let currentJobId = null, pollTimer = null;
+async function startJob() {
+  const urls = getUrls(), types = getTypes();
+  const delivery = document.getElementById('opt-delivery').value;
+  if (!urls.length || !types.length) return;
+  const opts = {
+    audioExt: document.getElementById('opt-af').value,
+    whisperModel: document.getElementById('opt-wm').value,
+    whisperLang: document.getElementById('opt-wl').value,
+  };
+  const vq = document.getElementById('opt-vq').value;
+  if (vq) opts.formatId = vq;
+  const items = urls.map(url => ({ url, label: url }));
+  const total = items.length * types.length;
+
+  document.getElementById('empty-state').style.display = 'none';
+  const qv = document.getElementById('queue-view');
+  qv.style.display = 'flex';
+  document.getElementById('q-title').textContent = 'File de traitement';
+  document.getElementById('q-meta').textContent = `${items.length} URL × ${types.length} type${types.length>1?'s':''} = ${total} tâche${total>1?'s':''}`;
+  document.getElementById('progress-global').style.display = 'block';
+  document.getElementById('btn-zip').style.display = 'none';
+  _jobRunning = true;
+  document.getElementById('btn-start').disabled = true;
+  buildQueueUI(items, types);
+
+  if (delivery === 'individual' || items.length === 1) {
+    let done = 0;
+    for (const item of items) {
+      await downloadIndividual(item.url, types, opts);
+      done += types.length;
+      document.getElementById('pg-fill').style.width = Math.round(done/total*100) + '%';
+      document.getElementById('pg-count').textContent = `${done} / ${total}`;
+    }
+    document.getElementById('pg-label').textContent = 'Terminé';
+    toast('Tous les téléchargements sont terminés', 'ok');
+    _jobRunning = false;
+    refreshStartBtn();
+  } else {
+    try {
+      const r = await fetch('/media-api/batch/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, types, ...opts })
+      });
+      const { jobId } = await r.json();
+      currentJobId = jobId;
+      pollJob(jobId, total);
+    } catch (err) {
+      toast('Erreur batch : ' + err.message, 'err');
+      _jobRunning = false;
+      refreshStartBtn();
+    }
+  }
+}
+
+function pollJob(jobId, total) {
+  pollTimer = setInterval(async () => {
+    try {
+      const r = await fetch(`/media-api/batch/status/${jobId}`);
+      const d = await r.json();
+      updateQueueFromLog(d.log || [], d.done, d.total || total);
+      if (d.status === 'done') {
+        clearInterval(pollTimer);
+        document.getElementById('btn-zip').style.display = 'block';
+        document.getElementById('btn-zip').disabled = false;
+        toast('Traitement terminé — ZIP prêt', 'ok');
+        _jobRunning = false;
+        refreshStartBtn();
+      } else if (d.status === 'error') {
+        clearInterval(pollTimer);
+        toast('Erreur batch : ' + d.error, 'err');
+        _jobRunning = false;
+        refreshStartBtn();
+      }
+    } catch {}
+  }, 1500);
+}
+
+async function downloadZip() {
+  if (!currentJobId) return;
+  const r = await fetch(`/media-api/batch/download/${currentJobId}`);
+  if (!r.ok) { toast('ZIP non disponible', 'err'); return; }
+  triggerDownload(await r.blob(), 'batch_download.zip');
+}
+
+function triggerDownload(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+}
+
+let toastTimer = null;
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3500);
+}
+
+checkServer();
+setInterval(checkServer, 30000);
+</script>
+</body>
+</html>
