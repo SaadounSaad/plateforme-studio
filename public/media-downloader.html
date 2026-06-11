@@ -557,6 +557,19 @@
       <p>Saisissez une ou plusieurs URLs, choisissez les types, puis lancez.</p>
     </div>
 
+    <div id="offline-right" style="display:none; padding:20px; border-radius:12px; border:1px solid var(--red); background:var(--red-dim);">
+      <h2 style="font: italic normal 22px/1.2 var(--serif); color:var(--red); margin-bottom:10px;">Backend hors ligne</h2>
+      <p style="font:13px/1.6 var(--sans); color:var(--fg); margin-bottom:12px;">
+        L'outil Media Downloader nécessite le backend local pour fonctionner.
+      </p>
+      <p style="font:11.5px/1.7 var(--mono); color:var(--muted);">
+        1. Ouvrez un terminal dans le dossier du projet<br>
+        2. Lancez <code style="color:var(--gold)">node media-backend/server.js</code><br>
+        3. Rafraîchissez cette page
+      </p>
+      <span id="offline-local-link-right"><br><a href="http://localhost:7880/media-downloader.html" style="color:var(--red); text-decoration:underline; font-weight:600;">→ Ouvrir en local ↗</a></span>
+    </div>
+
     <div id="queue-view" style="display:none; flex-direction:column; gap:16px">
       <div class="queue-header">
         <span class="queue-title" id="q-title">File de traitement</span>
@@ -691,6 +704,8 @@ async function checkServer() {
     document.getElementById('dl-sections').style.display = '';
     document.getElementById('trim-offline').style.display = 'none';
     document.getElementById('trim-sections').style.display = '';
+    document.getElementById('offline-right').style.display = 'none';
+    if (!_jobRunning) document.getElementById('empty-state').style.display = '';
   } catch {
     _failCount++;
     if (_failCount >= 2) {
@@ -705,6 +720,9 @@ async function checkServer() {
       document.getElementById('trim-sections').style.display = 'none';
       document.getElementById('offline-local-link-dl').style.display = isLocalhost ? 'none' : '';
       document.getElementById('offline-local-link-trim').style.display = isLocalhost ? 'none' : '';
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('offline-right').style.display = '';
+      document.getElementById('offline-local-link-right').style.display = isLocalhost ? 'none' : '';
     } else {
       dot.className = 'status-dot spin';
       txt.textContent = 'Vérification…';
