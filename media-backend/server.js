@@ -16,7 +16,8 @@ const PORT = process.env.PORT || 7880;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use('/media-backend', express.static(__dirname));
 
 // ── binary detection (memoized — run once, cached for process lifetime) ────────
 // Detection re-spawned on every /health call caused flaky ✗ badges under load
