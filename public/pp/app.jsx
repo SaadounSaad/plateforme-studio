@@ -50,6 +50,10 @@ function App() {
           <button className={mode === 'B' ? 'active' : ''} onClick={() => switchMode('B')}>
             Claude Code
           </button>
+          <button className={mode === 'C' ? 'active' : ''} onClick={() => switchMode('C')}
+            style={mode !== 'C' ? {} : {}}>
+            Fable Booster
+          </button>
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -69,9 +73,9 @@ function App() {
         </div>
       </div>
 
-      {mode === 'A'
-        ? <ModeA toast={toast} search={search} setSearch={setSearch} />
-        : <ModeB toast={toast} search={search} />}
+      {mode === 'A' && <ModeA toast={toast} search={search} setSearch={setSearch} />}
+      {mode === 'B' && <ModeB toast={toast} search={search} />}
+      {mode === 'C' && <ModeC toast={toast} />}
 
       <ToastHost toasts={toasts} />
     </div>

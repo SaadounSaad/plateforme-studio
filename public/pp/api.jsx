@@ -10,7 +10,7 @@ function stripFence(s) {
 }
 
 // ── Core Claude call ──────────────────────────────────────
-async function claudeCall({ system, messages, max_tokens = 1500 }) {
+async function claudeCall({ system, messages, max_tokens = 2000 }) {
   const body = { model: API_MODEL, max_tokens, messages };
   if (system) body.system = system;
   const resp = await fetch('/v1/messages', {
@@ -28,7 +28,7 @@ async function apiRefinePrompt(structured) {
   const raw = await claudeCall({
     system: 'You are a prompt engineering expert following Anthropic official best practices. Review and refine this XML-structured prompt. Ensure: role is concise and precise, instructions are sequential and unambiguous, output_format uses positive directives, examples in proper <example> XML tags. Preserve all user intent. Return ONLY the refined XML prompt starting with <prompt>, no markdown, no commentary.',
     messages: [{ role: 'user', content: 'Refine:\n\n' + structured }],
-    max_tokens: 1500
+    max_tokens: 2500
   });
   return stripFence(raw);
 }
@@ -39,7 +39,7 @@ async function apiRestructure(raw, lang) {
   const result = await claudeCall({
     system: `You are a prompt engineering expert following Anthropic best practices. Transform this rough idea (may be in darija, French, Arabic, or a mix) into a well-structured XML prompt with <role>, <instructions>, <context> (if needed), <output_format>, <examples> (if implied), <input> (if applicable). Instructions must be sequential and unambiguous. output_format must use positive directives (say what TO DO). Write the full prompt ${langLabel[lang] || 'en français'}. Return ONLY the XML-structured prompt starting with <prompt>, no markdown, no commentary.`,
     messages: [{ role: 'user', content: raw }],
-    max_tokens: 1500
+    max_tokens: 2000
   });
   return stripFence(result);
 }
@@ -236,9 +236,137 @@ async function apiBrainstormChat(conversation) {
   });
 }
 
+// ── Mode A: iterative prompt refinement via chat ───────────
+async function apiRefineChat(messages) {
+  return claudeCall({
+    system: `You are an expert prompt engineer following Anthropic best practices. You iteratively refine XML-structured prompts through dialogue.
+
+Rules:
+- When the user asks for a modification, apply it and return the COMPLETE updated XML prompt wrapped in <refined_prompt>...</refined_prompt> tags, followed by a 1-sentence explanation of what changed.
+- When the user asks a question (not a modification), answer directly without the XML tags.
+- Preserve all original user intent. Never remove functionality without explicit request.
+- Apply Anthropic best practices: clear role, sequential instructions, positive output_format directives, proper XML structure.
+- Keep changes surgical — only modify what was asked.`,
+    messages,
+    max_tokens: 3000
+  });
+}
+
+// ── Generic call with explicit model ─────────────────────
+async function claudeCallWith(model, { system, messages, max_tokens = 1500 }) {
+  const body = { model, max_tokens, messages };
+  if (system) body.system = system;
+  const resp = await fetch('/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+}
+
+// ── Mode C: Classify task complexity → model tier ────────
+// Uses Sonnet (fast, cheap) — classification is a medium task
+async function apiClassifyTask(taskDesc) {
+  const raw = await claudeCallWith('claude-sonnet-4-6', {
+    system: `Tu es un expert en architecture LLM et prompt engineering.
+Analyse la tâche décrite et détermine le tier de complexité optimal.
+
+Tiers disponibles :
+- haiku  : Tâches simples. Extraction, classification, traduction courte, reformatage, Q&R factuelles courtes.
+- sonnet : Tâches moyennes. Rédaction structurée, analyse documentaire, code review, génération de contenu structuré.
+- opus   : Tâches complexes. Raisonnement multi-étapes, architecture logicielle, debug profond, synthèse multi-source, jugement nuancé, ambiguïté forte.
+- fable  : Tâches frontières. Preuve mathématique, raisonnement inédit, expertise PhD-level, multi-domaine très complexe.
+
+Règles de classification :
+- Plusieurs sous-problèmes interdépendants → opus minimum
+- Jugement nuancé ou expertise rare → opus/fable
+- Output structuré > 500 tokens → sonnet minimum
+- Créativité complexe ou style exigeant → sonnet minimum
+- Incertitude sur la bonne approche → tier supérieur
+
+Réponds UNIQUEMENT avec ce JSON valide (pas de markdown) :
+{"tier":"haiku|sonnet|opus|fable","justification":"1-2 phrases expliquant le choix","confidence":0.0-1.0,"signals":["signal1","signal2","signal3"]}`,
+    messages: [{ role: 'user', content: `Tâche à classifier :\n\n${taskDesc}` }],
+    max_tokens: 350
+  });
+  const json = raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');
+  return JSON.parse(json);
+}
+
+// ── Mode C: Generate boosted prompt for target tier ───────
+// Uses Opus — prompt generation is a complex creative task
+async function apiGenerateBoostedPrompt(taskDesc, tier, domain) {
+  const TIER_STRATEGIES = {
+    haiku: `TIER : HAIKU — tâche simple.
+Stratégie : prompt ultra-direct, zéro overhead cognitif, instructions atomiques.
+- PAS de <thinking> (surcharge inutile sur tâche simple)
+- Rôle court et précis (1 ligne max)
+- Instructions séquentielles numérotées, chaque étape = 1 action atomique
+- Output format avec exemple concret inline
+- Contraintes négatives si pertinentes (ce que Claude NE doit PAS faire)`,
+
+    sonnet: `TIER : SONNET — tâche moyenne.
+Stratégie : structure XML claire + rôle expert + CoT sélectif.
+- Rôle expert précis avec domaine d'autorité
+- Instructions XML structurées (<role>, <instructions>, <output_format>)
+- CoT UNIQUEMENT pour les sous-parties non-triviales : "For [étape complexe], reason step by step before answering"
+- Few-shot example si output format ambigu
+- Variable d'entrée {{NOM}} en majuscules`,
+
+    opus: `TIER : OPUS — objectif : performance niveau FABLE 5.
+Les 5 mécanismes OBLIGATOIRES dans le system prompt généré :
+
+1. THINKING FORCÉ : "Before EVERY response, reason through the problem in <thinking></thinking> tags. Explore alternatives, check assumptions, identify edge cases. Never skip this."
+
+2. DÉCOMPOSITION MANDATÉE : "For any problem with 2+ parts: first list ALL sub-problems and your approach to each. Then solve one by one."
+
+3. CALIBRATION EXPERT : "You are a world-class expert in [domaine adapté]. Your standard: match the quality of the best published work in the field. If a junior analyst could have written it, rewrite it."
+
+4. AUTO-CRITIQUE CONSTITUTIONNELLE : "After drafting, review: (a) Is every claim accurate? (b) Did I miss anything important? (c) Is this the best possible structure? Revise before responding."
+
+5. PROTOCOLE INCERTITUDE : "Never hallucinate. When confidence < 90%, signal explicitly: '[à vérifier]', 'je suppose que...', 'selon mes connaissances générales...'. Better to acknowledge uncertainty than to fabricate."`,
+
+    fable: `TIER : FABLE 5 — tâche frontière.
+Fable 5 raisonne naturellement en profondeur — ne pas forcer de CoT artificiel.
+Stratégie : structure riche + contexte maximal + exemples haute qualité.
+- Rôle avec autorité maximale et contexte de travail précis
+- XML structuré complet avec <context> riche
+- 1-2 exemples few-shot de TRÈS haute qualité montrant le niveau attendu
+- Output format précis avec critères de qualité explicites
+- Contraintes de précision et de profondeur`
+  };
+
+  const raw = await claudeCallWith('claude-opus-4-8', {
+    system: `Tu es un expert prompt engineer Anthropic. Tu génères des prompts "boostés" optimisés pour extraire le maximum de performance d'un modèle cible.
+
+Règles absolues :
+- Le system_prompt doit être en anglais (meilleure performance sur les modèles Anthropic)
+- Le user_template peut être dans la langue de la tâche
+- Utilise les XML tags Anthropic (<role>, <instructions>, <context>, <examples>, <output_format>, <constraints>)
+- Les variables sont en {{MAJUSCULES}}
+- PAS de markdown dans les prompts générés — uniquement du texte structuré XML
+
+${TIER_STRATEGIES[tier]}`,
+    messages: [{ role: 'user', content: `Génère un prompt boosté pour cette tâche.
+
+Tâche : ${taskDesc}${domain ? `\nDomaine : ${domain}` : ''}
+Tier cible : ${tier}
+
+Réponds UNIQUEMENT avec ce JSON valide (pas de markdown wrapper) :
+{"system_prompt":"...","user_template":"...","variables":["VAR1"],"usage_tips":["conseil1","conseil2"],"cot_required":true}` }],
+    max_tokens: 2500
+  });
+  const json = raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');
+  return JSON.parse(json);
+}
+
 Object.assign(window, {
-  claudeCall, apiRefinePrompt, apiRestructure,
+  claudeCall, claudeCallWith,
+  apiRefinePrompt, apiRestructure, apiRefineChat,
   apiLoadResources, apiLoadResourceFile,
   apiRecommendResources, apiGenerateClaudeMd, apiBrainstormChat,
-  apiGenerateAllDocs, apiGenerateGuide
+  apiGenerateAllDocs, apiGenerateGuide,
+  apiClassifyTask, apiGenerateBoostedPrompt
 });

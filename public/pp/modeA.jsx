@@ -291,6 +291,99 @@ function GuidePane() {
   );
 }
 
+// ── Mode A: Refine chat panel ─────────────────────────────
+function RefineChatPane({ result, messages, setMessages, convRef, input, setInput, loading, setLoading, onApply }) {
+  const scrollRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  const extractRefined = (text) => {
+    const m = text.match(/<refined_prompt>([\s\S]*?)<\/refined_prompt>/);
+    if (m) return m[1].trim();
+    const p = text.match(/(<prompt>[\s\S]*?<\/prompt>)/);
+    if (p) return p[1].trim();
+    return null;
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || loading) return;
+    const u = input.trim();
+    setInput('');
+    convRef.current.push({ role: 'user', content: u });
+    const newMsgs = [...messages, { who: 'user', text: u }];
+    setMessages(newMsgs);
+    setLoading(true);
+    try {
+      const reply = await apiRefineChat(convRef.current);
+      convRef.current.push({ role: 'assistant', content: reply });
+      setMessages([...newMsgs, { who: 'bot', text: reply }]);
+    } catch(e) {
+      setMessages([...newMsgs, { who: 'bot', text: 'Erreur : ' + e.message }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  if (!result) return (
+    <div className="panelbody scroll">
+      <EmptyState icon="sparkle" title="Aucun prompt à raffiner"
+        sub="Génère d'abord un prompt XML dans l'onglet Construire, puis reviens ici pour l'affiner en dialogue." />
+    </div>
+  );
+
+  return (
+    <div className="chat-wrap">
+      <div ref={scrollRef} className="panelbody scroll" style={{ flex: 1 }}>
+        <div className="chat">
+          {messages.map((m, i) => {
+            const refined = m.who === 'bot' ? extractRefined(m.text) : null;
+            const cleanText = refined
+              ? m.text.replace(/<refined_prompt>[\s\S]*?<\/refined_prompt>/, '').trim()
+              : m.text;
+            return (
+              <div key={i} className={`msg ${m.who}`}>
+                <div className="who">{m.who === 'bot' ? 'Claude' : 'Vous'}</div>
+                {m.who === 'bot' ? renderMarkdown(cleanText || '…') : cleanText}
+                {refined && (
+                  <div style={{ marginTop: 10 }}>
+                    <pre className="code scroll" style={{ maxHeight: 200, fontSize: 10.5, padding: '10px 14px', margin: '0 0 8px' }}>
+                      <XMLView src={refined} />
+                    </pre>
+                    <button className="btn btn-soft btn-sm" onClick={() => onApply(refined)}>
+                      <Icon name="check" size={13} /> Appliquer cette version
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {loading && (
+            <div className="msg bot">
+              <div className="who">Claude</div>
+              <div className="spin-sm" />
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="chat-footer">
+        <div className="chatinput">
+          <Textarea value={input} onChange={setInput} onKeyDown={handleKey} rows={2}
+            placeholder="Ex: Ajoute un uncertainty_protocol, renforce le rôle, structure l'output différemment… (Shift+Entrée)" />
+          <button className="btn btn-ghost btn-icon" onClick={handleSend} disabled={!input.trim() || loading}>
+            <Icon name="send" size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── ModeA container ───────────────────────────────────────
 function ModeA({ toast, search, setSearch }) {
   const [rightTab, setRightTab] = React.useState('results');
@@ -300,11 +393,28 @@ function ModeA({ toast, search, setSearch }) {
   const [saveName, setSaveName] = React.useState('');
   const [saveCat, setSaveCat]   = React.useState('');
   const [langFilter, setLangFilter] = React.useState('ALL');
+  const [refineMessages, setRefineMessages] = React.useState([]);
+  const [refineInput, setRefineInput]       = React.useState('');
+  const [refineLoading, setRefineLoading]   = React.useState(false);
+  const refineConvRef = React.useRef([]);
 
   // Auto-switch to library when user searches from topbar
   React.useEffect(() => {
     if (search) setRightTab('library');
   }, [search]);
+
+  // Init refine chat when switching to that tab
+  React.useEffect(() => {
+    if (rightTab === 'raffiner' && result && refineMessages.length === 0) {
+      refineConvRef.current = [
+        { role: 'user', content: `Here is my XML prompt to refine:\n\n${result}\n\nHelp me improve it.` },
+        { role: 'assistant', content: 'Prompt chargé. Que souhaitez-vous améliorer ? (rôle, structure, protocoles, format de sortie, exemples…)' }
+      ];
+      setRefineMessages([
+        { who: 'bot', text: 'Prompt chargé. Que souhaitez-vous améliorer ? (rôle, structure, protocoles, format de sortie, exemples…)' }
+      ]);
+    }
+  }, [rightTab, result]);
   const [editId, setEditId]     = React.useState(null);
 
   const [lib, setLib] = React.useState(() => {
@@ -325,6 +435,11 @@ function ModeA({ toast, search, setSearch }) {
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const applyRefined = (newXml) => {
+    setResult(newXml);
+    toast('ok', 'Prompt mis à jour — onglet Résultats');
+  };
+
   const generate = async () => {
     if (!form.role.trim() || !form.goal.trim()) {
       toast('err', 'Rôle et Objectif sont obligatoires');
@@ -333,6 +448,8 @@ function ModeA({ toast, search, setSearch }) {
     const structured = buildXML(form);
     setLoading(true);
     setRightTab('results');
+    setRefineMessages([]);
+    refineConvRef.current = [];
     try {
       const refined = await apiRefinePrompt(structured);
       setResult(refined || structured);
@@ -443,34 +560,50 @@ function ModeA({ toast, search, setSearch }) {
         <SectionTabs
           tabs={[
             { id: 'results', label: 'Résultats' },
+            { id: 'raffiner', label: 'Raffiner' },
             { id: 'library', label: 'Bibliothèque' },
             { id: 'guide', label: 'Guide' },
           ]}
           active={rightTab} onSelect={setRightTab}
           counts={{ library: lib.length }} />
-        <div className="panelbody scroll">
-          {rightTab === 'results' && (
-            <ResultsPane result={result} saveName={saveName} saveCat={saveCat}
-              setSaveName={setSaveName} setSaveCat={setSaveCat}
-              onCopy={() => copyText(result, toast)}
-              onSave={doSave} />
-          )}
-          {rightTab === 'library' && (
-            <LibraryPane lib={lib} search={search} setSearch={setSearch}
-              langFilter={langFilter} setLangFilter={setLangFilter}
-              editId={editId} setEditId={setEditId}
-              onRestore={doRestore}
-              onCopy={p => copyText(p.xml, toast)}
-              onDelete={p => { setLib(l => l.filter(x => x.id !== p.id)); toast('info', 'Prompt supprimé'); }}
-              onSaveEdit={d => { setLib(l => l.map(x => x.id === d.id ? d : x)); setEditId(null); toast('ok', 'Modifications enregistrées'); }}
-              onImport={(items, merge) => {
-                if (merge) setLib(l => [...l, ...items.filter(i => !l.find(e => e.id === i.id))]);
-                else setLib(items);
-              }}
-              toast={toast} />
-          )}
-          {rightTab === 'guide' && <GuidePane />}
-        </div>
+        {rightTab === 'raffiner' ? (
+          <RefineChatPane
+            result={result}
+            messages={refineMessages}
+            setMessages={setRefineMessages}
+            convRef={refineConvRef}
+            input={refineInput}
+            setInput={setRefineInput}
+            loading={refineLoading}
+            setLoading={setRefineLoading}
+            onApply={applyRefined}
+            toast={toast}
+          />
+        ) : (
+          <div className="panelbody scroll">
+            {rightTab === 'results' && (
+              <ResultsPane result={result} saveName={saveName} saveCat={saveCat}
+                setSaveName={setSaveName} setSaveCat={setSaveCat}
+                onCopy={() => copyText(result, toast)}
+                onSave={doSave} />
+            )}
+            {rightTab === 'library' && (
+              <LibraryPane lib={lib} search={search} setSearch={setSearch}
+                langFilter={langFilter} setLangFilter={setLangFilter}
+                editId={editId} setEditId={setEditId}
+                onRestore={doRestore}
+                onCopy={p => copyText(p.xml, toast)}
+                onDelete={p => { setLib(l => l.filter(x => x.id !== p.id)); toast('info', 'Prompt supprimé'); }}
+                onSaveEdit={d => { setLib(l => l.map(x => x.id === d.id ? d : x)); setEditId(null); toast('ok', 'Modifications enregistrées'); }}
+                onImport={(items, merge) => {
+                  if (merge) setLib(l => [...l, ...items.filter(i => !l.find(e => e.id === i.id))]);
+                  else setLib(items);
+                }}
+                toast={toast} />
+            )}
+            {rightTab === 'guide' && <GuidePane />}
+          </div>
+        )}
       </div>
     </div>
   );
