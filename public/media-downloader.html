@@ -391,6 +391,12 @@
             <span class="tc-desc">Thumbnail / photo</span>
             <div class="tc-check"></div>
           </div>
+          <div class="type-card" data-type="subtitle" onclick="toggleType(this)">
+            <span class="tc-icon">💬</span>
+            <span class="tc-name">Sous-titres</span>
+            <span class="tc-desc">SRT traduit</span>
+            <div class="tc-check"></div>
+          </div>
         </div>
       </div>
 
@@ -433,6 +439,22 @@
               <option value="en">Anglais</option>
               <option value="es">Espagnol</option>
               <option value="de">Allemand</option>
+            </select>
+          </div>
+          <div class="options-row" id="row-tl" style="display:none">
+            <span class="opt-label">Langue sortie</span>
+            <select id="opt-tl">
+              <option value="none">— aucune traduction</option>
+              <option value="fr">Français</option>
+              <option value="ar">Arabe</option>
+              <option value="en">Anglais</option>
+              <option value="es">Espagnol</option>
+              <option value="de">Allemand</option>
+              <option value="pt">Portugais</option>
+              <option value="ru">Russe</option>
+              <option value="zh-CN">Chinois</option>
+              <option value="ja">Japonais</option>
+              <option value="tr">Turc</option>
             </select>
           </div>
           <div class="options-row">
@@ -753,7 +775,12 @@ document.getElementById('file-input').addEventListener('change', e => {
 });
 
 // ── Type toggle ───────────────────────────────────────────────────────────────
-function toggleType(card) { card.classList.toggle('active'); refreshStartBtn(); }
+function toggleType(card) {
+  card.classList.toggle('active');
+  document.getElementById('row-tl').style.display =
+    document.querySelector('.type-card.active[data-type="subtitle"]') ? '' : 'none';
+  refreshStartBtn();
+}
 function getTypes() { return [...document.querySelectorAll('.type-card.active')].map(c => c.dataset.type); }
 function refreshStartBtn() {
   const urls = getUrls().length, types = getTypes().length, total = urls * types;
@@ -880,6 +907,7 @@ async function startJob() {
     audioExt: document.getElementById('opt-af').value,
     whisperModel: document.getElementById('opt-wm').value,
     whisperLang: document.getElementById('opt-wl').value,
+    translateLang: document.getElementById('opt-tl').value,
   };
   const vq = document.getElementById('opt-vq').value;
   if (vq) opts.formatId = vq;

@@ -44,3 +44,5 @@ media-backend/node_modules/
 pdf-backend/__pycache__/
 *.pyc
 media-backend/backend.log
+
+.vercel

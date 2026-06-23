@@ -109,6 +109,9 @@ const WHISPER_MODELS = new Set([
 const WHISPER_LANGS = new Set([
   'auto', 'fr', 'ar', 'en', 'es', 'de', 'it', 'pt', 'nl', 'ru', 'zh', 'ja', 'ko', 'tr',
 ]);
+const TRANSLATE_LANGS = new Set([
+  'none', 'fr', 'ar', 'en', 'es', 'de', 'it', 'pt', 'nl', 'ru', 'zh-CN', 'ja', 'ko', 'tr',
+]);
 
 // Audio container/codec names allowed from the client — these end up in output
 // filenames (path traversal guard) and ffmpeg/yt-dlp args.
@@ -517,6 +520,86 @@ print("ok")
       const outPath = path.join(tmpDir, filename);
       fs.writeFileSync(outPath, text, 'utf8');
       return { tmpDir, file: filename, mime: 'text/plain' };
+
+    } else if (type === 'subtitle') {
+      if (!hasWhisper()) throw new Error('Whisper non disponible');
+      const py = getPythonBin();
+      const audioDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytdl2-wav-'));
+      try {
+        const bin = getYtDlpBin();
+        const dlArgs = [
+          '--no-playlist', '--no-warnings',
+          '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
+          '-x', '--audio-format', 'wav',
+          '--postprocessor-args', 'ffmpeg:-ar 16000 -ac 1',
+          '-o', path.join(audioDir, 'audio.%(ext)s'),
+          '--', url
+        ];
+        await runSpawn(bin, dlArgs);
+        const wavFile = fs.readdirSync(audioDir).find(f => f.endsWith('.wav'));
+        if (!wavFile) throw new Error('Audio introuvable après téléchargement');
+
+        const wavPath = path.join(audioDir, wavFile);
+        const model = opts.whisperModel || 'base';
+        if (!WHISPER_MODELS.has(model)) throw new Error('Modèle whisper invalide');
+        const reqLang = opts.whisperLang || 'auto';
+        if (!WHISPER_LANGS.has(reqLang)) throw new Error('Langue whisper invalide');
+        const translateLang = opts.translateLang || 'none';
+        if (!TRANSLATE_LANGS.has(translateLang)) throw new Error('Langue de traduction invalide');
+
+        const lang = reqLang !== 'auto' ? `language="${reqLang}",` : '';
+        const outSrt = path.join(audioDir, 'sub.srt');
+        const wavPathEsc = wavPath.replace(/\\/g, '\\\\');
+        const outSrtEsc  = outSrt.replace(/\\/g, '\\\\');
+
+        const translateBlock = translateLang !== 'none' ? `
+try:
+    from deep_translator import GoogleTranslator
+    tr = GoogleTranslator(source='auto', target='${translateLang}')
+    blocks = [b for b in srt.strip().split("\\n\\n") if b.strip()]
+    out = []
+    for block in blocks:
+        parts = block.split("\\n", 2)
+        if len(parts) >= 3:
+            try: parts[2] = tr.translate(parts[2]) or parts[2]
+            except: pass
+            out.append("\\n".join(parts))
+        else:
+            out.append(block)
+    srt = "\\n\\n".join(out)
+except ImportError:
+    pass
+` : '';
+
+        const pyScript = `
+import sys, io, whisper
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+def fmt(s):
+    h=int(s//3600); m=int((s%3600)//60); sec=int(s%60); ms=int((s%1)*1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+model = whisper.load_model("${model}")
+r = model.transcribe(r"${wavPathEsc}", ${lang} fp16=False, verbose=False)
+lines = []
+for i, seg in enumerate(r["segments"], 1):
+    lines += [str(i), f"{fmt(seg['start'])} --> {fmt(seg['end'])}", seg['text'].strip(), ""]
+srt = "\\n".join(lines)
+${translateBlock}
+with open(r"${outSrtEsc}", "w", encoding="utf-8") as f:
+    f.write(srt)
+print("ok")
+`;
+        await runSpawn(py, ['-c', pyScript]);
+        if (!fs.existsSync(outSrt)) throw new Error('Génération SRT échouée');
+
+        const srtContent = fs.readFileSync(outSrt, 'utf8');
+        const suffix = translateLang !== 'none' ? `_${translateLang}` : '';
+        const srtFilename = `subtitles${suffix}.srt`;
+        const destPath = path.join(tmpDir, srtFilename);
+        fs.writeFileSync(destPath, srtContent, 'utf8');
+        return { tmpDir, file: srtFilename, mime: 'text/plain' };
+      } finally {
+        fs.rmSync(audioDir, { recursive: true, force: true });
+      }
     }
 
     throw new Error('Type inconnu');
@@ -529,10 +612,10 @@ print("ok")
 // ── single download endpoint (used by frontend for 1 item / 1 type) ──────────
 
 apiRouter.post('/download', async (req, res) => {
-  const { url, type, formatId, audioExt, whisperModel, whisperLang, startTime, endTime } = req.body;
+  const { url, type, formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime } = req.body;
   if (!url || !type) return res.status(400).json({ error: 'url et type requis' });
   try {
-    const { tmpDir, file, mime } = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, startTime, endTime });
+    const { tmpDir, file, mime } = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime });
     const filePath = path.join(tmpDir, file);
     const stat = fs.statSync(filePath);
     res.setHeader('Content-Disposition', buildContentDisposition(file));
@@ -549,7 +632,7 @@ apiRouter.post('/download', async (req, res) => {
 // ── batch endpoint: N urls x M types → ZIP ───────────────────────────────────
 
 apiRouter.post('/batch', async (req, res) => {
-  const { items, types, formatId, audioExt, whisperModel, whisperLang } = req.body;
+  const { items, types, formatId, audioExt, whisperModel, whisperLang, translateLang } = req.body;
   // items: [{ url, label }]
   // types: ['video','audio','image','text'] (selection)
   if (!items?.length || !types?.length) return res.status(400).json({ error: 'items et types requis' });
@@ -568,7 +651,7 @@ apiRouter.post('/batch', async (req, res) => {
     for (const type of types) {
       let tmpDir = null;
       try {
-        const result = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang });
+        const result = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang });
         tmpDir = result.tmpDir;
         const filePath = path.join(tmpDir, result.file);
         archive.file(filePath, { name: `${folderName}/${type}/${result.file}` });
@@ -601,7 +684,7 @@ apiRouter.post('/batch', async (req, res) => {
 const jobs = new Map();
 
 apiRouter.post('/batch/start', async (req, res) => {
-  const { items, types, formatId, audioExt, whisperModel, whisperLang } = req.body;
+  const { items, types, formatId, audioExt, whisperModel, whisperLang, translateLang } = req.body;
   if (!items?.length || !types?.length) return res.status(400).json({ error: 'items et types requis' });
 
   const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -622,7 +705,7 @@ apiRouter.post('/batch/start', async (req, res) => {
         let tmpDir = null;
         try {
           job.log.push({ url, type, status: 'processing' });
-          const result = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang });
+          const result = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang });
           tmpDir = result.tmpDir;
           // copy file to stable location inside tmpRoot
           const destDir = path.join(tmpRoot, folderName, type);
