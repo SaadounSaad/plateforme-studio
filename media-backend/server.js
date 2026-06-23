@@ -630,10 +630,22 @@ apiRouter.post('/download', async (req, res) => {
     const filePath = path.join(tmpDir, file);
 
     if (outputDir) {
-      const resolvedDir = path.resolve(String(outputDir));
-      if (!fs.existsSync(resolvedDir)) {
+      const rawDir = String(outputDir);
+      if (!path.isAbsolute(rawDir)) {
         fs.rmSync(tmpDir, { recursive: true, force: true });
-        return res.status(400).json({ error: `Dossier introuvable : ${resolvedDir}` });
+        return res.status(400).json({ error: 'outputDir doit être un chemin absolu' });
+      }
+      let resolvedDir;
+      try {
+        resolvedDir = fs.realpathSync(rawDir);
+      } catch {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        return res.status(400).json({ error: `Dossier introuvable : ${rawDir}` });
+      }
+      // Reject filenames with path traversal sequences or separators
+      if (!file || /[/\\]|\.\./.test(file)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        return res.status(400).json({ error: 'Nom de fichier invalide' });
       }
       const destPath = path.join(resolvedDir, file);
       fs.copyFileSync(filePath, destPath);
