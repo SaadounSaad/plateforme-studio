@@ -349,6 +349,15 @@ function runSpawn(bin, args) {
   });
 }
 
+async function getVideoTitle(url, bin) {
+  try {
+    const out = await runSpawn(bin, ['--print', 'title', '--no-playlist', '--no-warnings', '--', url]);
+    return out.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 150) || 'untitled';
+  } catch {
+    return 'untitled';
+  }
+}
+
 // ── single-item download ──────────────────────────────────────────────────────
 // type: 'video' | 'audio' | 'image' | 'text'
 
@@ -509,7 +518,8 @@ print("ok")
             if (fs.existsSync(outTxt)) {
               text = fs.readFileSync(outTxt, 'utf8').trim();
             }
-            filename = 'transcription_whisper.txt';
+            const title = await getVideoTitle(url, bin);
+            filename = `${title}_whisper.txt`;
           }
         } finally {
           fs.rmSync(audioDir, { recursive: true, force: true });
@@ -592,8 +602,9 @@ print("ok")
         if (!fs.existsSync(outSrt)) throw new Error('Génération SRT échouée');
 
         const srtContent = fs.readFileSync(outSrt, 'utf8');
+        const videoTitle = await getVideoTitle(url, bin);
         const suffix = translateLang !== 'none' ? `_${translateLang}` : '';
-        const srtFilename = `subtitles${suffix}.srt`;
+        const srtFilename = `${videoTitle}${suffix}.srt`;
         const destPath = path.join(tmpDir, srtFilename);
         fs.writeFileSync(destPath, srtContent, 'utf8');
         return { tmpDir, file: srtFilename, mime: 'text/plain' };
@@ -612,11 +623,24 @@ print("ok")
 // ── single download endpoint (used by frontend for 1 item / 1 type) ──────────
 
 apiRouter.post('/download', async (req, res) => {
-  const { url, type, formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime } = req.body;
+  const { url, type, formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime, outputDir } = req.body;
   if (!url || !type) return res.status(400).json({ error: 'url et type requis' });
   try {
     const { tmpDir, file, mime } = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime });
     const filePath = path.join(tmpDir, file);
+
+    if (outputDir) {
+      const resolvedDir = path.resolve(String(outputDir));
+      if (!fs.existsSync(resolvedDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        return res.status(400).json({ error: `Dossier introuvable : ${resolvedDir}` });
+      }
+      const destPath = path.join(resolvedDir, file);
+      fs.copyFileSync(filePath, destPath);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      return res.json({ saved: true, path: destPath, filename: file });
+    }
+
     const stat = fs.statSync(filePath);
     res.setHeader('Content-Disposition', buildContentDisposition(file));
     res.setHeader('Content-Length', stat.size);

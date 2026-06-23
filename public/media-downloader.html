@@ -464,6 +464,10 @@
               <option value="zip">ZIP groupé</option>
             </select>
           </div>
+          <div class="options-row">
+            <span class="opt-label">Dossier de sortie</span>
+            <input id="opt-outdir" type="text" placeholder="Laisser vide → Téléchargements" style="flex:1;background:var(--input-bg,#1e1e1e);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;min-width:0;" oninput="localStorage.setItem('opt-outdir',this.value)">
+          </div>
         </div>
       </div>
 
@@ -878,12 +882,23 @@ async function downloadIndividual(url, types, opts) {
         try { const ct = r.headers.get('content-type') || ''; if (ct.includes('application/json')) { const e = await r.json(); msg = e.error || msg; } } catch {}
         throw new Error(msg);
       }
-      const blob = await r.blob();
-      const disp = r.headers.get('Content-Disposition') || '';
-      const m = disp.match(/filename\*=UTF-8''([^;\s]+)/i) || disp.match(/filename="([^"]+)"/i);
-      const ext = type==='video'?'mp4':type==='audio'?opts.audioExt||'mp3':type==='image'?'jpg':'txt';
-      triggerDownload(blob, m ? decodeURIComponent(m[1]) : `download_${type}.${ext}`);
-      if (pill) pill.className = 'q-type-pill done';
+      const ct = r.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const data = await r.json();
+        if (data.saved) {
+          toast(`Enregistré : ${data.filename}`, 'ok');
+          if (pill) pill.className = 'q-type-pill done';
+        } else {
+          throw new Error(data.error || 'Erreur');
+        }
+      } else {
+        const blob = await r.blob();
+        const disp = r.headers.get('Content-Disposition') || '';
+        const m = disp.match(/filename\*=UTF-8''([^;\s]+)/i) || disp.match(/filename="([^"]+)"/i);
+        const ext = type==='video'?'mp4':type==='audio'?opts.audioExt||'mp3':type==='image'?'jpg':'txt';
+        triggerDownload(blob, m ? decodeURIComponent(m[1]) : `download_${type}.${ext}`);
+        if (pill) pill.className = 'q-type-pill done';
+      }
     } catch (err) {
       if (pill) pill.className = 'q-type-pill error';
       const errEl = document.getElementById(`qe-${urlEnc}`);
@@ -911,6 +926,8 @@ async function startJob() {
   };
   const vq = document.getElementById('opt-vq').value;
   if (vq) opts.formatId = vq;
+  const outputDir = document.getElementById('opt-outdir').value.trim();
+  if (outputDir) opts.outputDir = outputDir;
   const items = urls.map(url => ({ url, label: url }));
   const total = items.length * types.length;
 
@@ -1015,6 +1032,12 @@ if (location.port === '7880' || location.host === 'localhost:7880') {
 
 checkServer();
 setInterval(checkServer, 30000);
+
+// Restore persisted options
+(function() {
+  const outdir = localStorage.getItem('opt-outdir');
+  if (outdir) document.getElementById('opt-outdir').value = outdir;
+})();
 </script>
 </body>
 </html>
