@@ -14,7 +14,31 @@ const multer   = require('multer');
 const app  = express();
 const PORT = process.env.PORT || 7880;
 
-app.use(cors());
+const ALLOWED_ORIGINS = new Set([
+  'http://localhost:7880',
+  'http://localhost:3000',
+  'https://plateforme-studio.vercel.app',
+]);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow server-to-server (no origin header) and known origins only
+    if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+    cb(Object.assign(new Error('Origin non autorisée'), { status: 403 }));
+  },
+  credentials: false,
+}));
+
+// CSRF guard: mutating endpoints require this header.
+// A cross-origin page cannot set custom headers without a CORS preflight,
+// which will be blocked above — so this is defense-in-depth.
+function requireLocalHeader(req, res, next) {
+  if (req.headers['x-local-request'] !== '1') {
+    return res.status(403).json({ error: 'Accès refusé' });
+  }
+  next();
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/media-backend', express.static(__dirname));
@@ -622,7 +646,7 @@ print("ok")
 
 // ── single download endpoint (used by frontend for 1 item / 1 type) ──────────
 
-apiRouter.post('/download', async (req, res) => {
+apiRouter.post('/download', requireLocalHeader, async (req, res) => {
   const { url, type, formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime, outputDir } = req.body;
   if (!url || !type) return res.status(400).json({ error: 'url et type requis' });
   try {
@@ -648,7 +672,7 @@ apiRouter.post('/download', async (req, res) => {
         return res.status(400).json({ error: 'Nom de fichier invalide' });
       }
       const destPath = path.join(resolvedDir, file);
-      fs.copyFileSync(filePath, destPath);
+      fs.copyFileSync(filePath, destPath, fs.constants.COPYFILE_EXCL);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       return res.json({ saved: true, path: destPath, filename: file });
     }
@@ -667,7 +691,7 @@ apiRouter.post('/download', async (req, res) => {
 
 // ── batch endpoint: N urls x M types → ZIP ───────────────────────────────────
 
-apiRouter.post('/batch', async (req, res) => {
+apiRouter.post('/batch', requireLocalHeader, async (req, res) => {
   const { items, types, formatId, audioExt, whisperModel, whisperLang, translateLang } = req.body;
   // items: [{ url, label }]
   // types: ['video','audio','image','text'] (selection)
@@ -719,7 +743,7 @@ apiRouter.post('/batch', async (req, res) => {
 
 const jobs = new Map();
 
-apiRouter.post('/batch/start', async (req, res) => {
+apiRouter.post('/batch/start', requireLocalHeader, async (req, res) => {
   const { items, types, formatId, audioExt, whisperModel, whisperLang, translateLang } = req.body;
   if (!items?.length || !types?.length) return res.status(400).json({ error: 'items et types requis' });
 
@@ -818,7 +842,7 @@ function timeToSeconds(t) {
 
 const upload = multer({ dest: os.tmpdir() });
 
-apiRouter.post('/trim-local', upload.single('file'), async (req, res) => {
+apiRouter.post('/trim-local', requireLocalHeader, upload.single('file'), async (req, res) => {
   const { type, audioExt, startTime, endTime } = req.body;
   if (!req.file) return res.status(400).json({ error: 'Fichier manquant' });
   if (!startTime && !endTime) return res.status(400).json({ error: 'startTime ou endTime requis' });
@@ -874,7 +898,7 @@ apiRouter.post('/trim-local', upload.single('file'), async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  YT-DL v2  →  http://localhost:${PORT}`);
   console.log(`  yt-dlp  : ${getYtDlpBin()  ? '✓' : '✗'}`);
   console.log(`  ffmpeg  : ${hasFfmpeg()     ? '✓' : '✗'}`);
