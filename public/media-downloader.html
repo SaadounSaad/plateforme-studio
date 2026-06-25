@@ -332,6 +332,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" onclick="switchTab('download')">Télécharger</button>
       <button class="tab-btn" onclick="switchTab('trim')">Découper</button>
+      <button class="tab-btn" onclick="switchTab('transcribe')">Transcrire</button>
     </div>
 
     <!-- TAB: Télécharger -->
@@ -568,6 +569,80 @@
       </div>
     </div>
 
+    <!-- TAB: Transcrire -->
+    <div class="tab-panel" id="tab-transcribe">
+
+      <div>
+        <div class="section-label">Fichier local</div>
+        <input id="tr-filepath" type="text" placeholder="C:\Videos\conference.mp4"
+          style="width:100%;box-sizing:border-box;background:var(--surface2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;font-family:var(--mono);"
+          oninput="localStorage.setItem('tr-filepath',this.value)">
+        <div style="font:11px/1.5 var(--mono);color:var(--muted);margin-top:5px;">Collez le chemin absolu de votre vidéo ou audio.</div>
+      </div>
+
+      <div>
+        <div class="section-label">Mode</div>
+        <div class="source-toggle">
+          <button class="src-btn active" id="tr-mode-text" onclick="setTrMode('text')">Texte</button>
+          <button class="src-btn" id="tr-mode-subtitle" onclick="setTrMode('subtitle')">Sous-titres SRT</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Options</div>
+        <div class="options-box">
+          <div class="options-row">
+            <span class="opt-label">Whisper</span>
+            <select id="tr-wm">
+              <option value="tiny">tiny — rapide</option>
+              <option value="base" selected>base — équilibré</option>
+              <option value="small">small — précis</option>
+              <option value="medium">medium — haute qualité</option>
+            </select>
+          </div>
+          <div class="options-row">
+            <span class="opt-label">Langue source</span>
+            <select id="tr-wl">
+              <option value="auto">Auto-détection</option>
+              <option value="fr">Français</option>
+              <option value="ar">Arabe</option>
+              <option value="en">Anglais</option>
+              <option value="es">Espagnol</option>
+              <option value="de">Allemand</option>
+            </select>
+          </div>
+          <div class="options-row" id="tr-tl-row" style="display:none">
+            <span class="opt-label">Traduire vers</span>
+            <select id="tr-tl">
+              <option value="none">— aucune traduction</option>
+              <option value="fr">Français</option>
+              <option value="ar">Arabe</option>
+              <option value="en">Anglais</option>
+              <option value="es">Espagnol</option>
+              <option value="de">Allemand</option>
+              <option value="pt">Portugais</option>
+              <option value="ru">Russe</option>
+              <option value="zh-CN">Chinois</option>
+              <option value="ja">Japonais</option>
+              <option value="tr">Turc</option>
+            </select>
+          </div>
+          <div class="options-row">
+            <span class="opt-label">Dossier de sortie</span>
+            <input id="tr-outdir" type="text" placeholder="Laisser vide → Téléchargements"
+              style="flex:1;background:var(--surface2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;min-width:0;"
+              oninput="localStorage.setItem('opt-outdir',this.value);document.getElementById('opt-outdir').value=this.value">
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="btn-transcribe" onclick="startTranscribe()">
+        <span>🎙</span>
+        <span id="btn-transcribe-label">Transcrire</span>
+      </button>
+
+    </div>
+
   </aside>
 
   <!-- ══ RIGHT PANEL ══ -->
@@ -635,7 +710,7 @@ applyTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(name) {
-  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', ['download','trim'][i] === name));
+  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', ['download','trim','transcribe'][i] === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
 }
 
@@ -1036,8 +1111,63 @@ setInterval(checkServer, 30000);
 // Restore persisted options
 (function() {
   const outdir = localStorage.getItem('opt-outdir');
-  if (outdir) document.getElementById('opt-outdir').value = outdir;
+  if (outdir) { document.getElementById('opt-outdir').value = outdir; document.getElementById('tr-outdir').value = outdir; }
+  const trpath = localStorage.getItem('tr-filepath');
+  if (trpath) document.getElementById('tr-filepath').value = trpath;
 })();
+
+// ── Transcrire tab ────────────────────────────────────────────────────────────
+let _trMode = 'text';
+function setTrMode(mode) {
+  _trMode = mode;
+  document.getElementById('tr-mode-text').classList.toggle('active', mode === 'text');
+  document.getElementById('tr-mode-subtitle').classList.toggle('active', mode === 'subtitle');
+  document.getElementById('tr-tl-row').style.display = mode === 'subtitle' ? '' : 'none';
+}
+
+async function startTranscribe() {
+  const filePath = document.getElementById('tr-filepath').value.trim();
+  if (!filePath) { toast('Chemin du fichier requis', 'err'); return; }
+  const btn = document.getElementById('btn-transcribe');
+  const lbl = document.getElementById('btn-transcribe-label');
+  btn.disabled = true; lbl.textContent = 'Traitement en cours…';
+  try {
+    const outputDir = document.getElementById('tr-outdir').value.trim();
+    const body = {
+      filePath,
+      type: _trMode,
+      whisperModel: document.getElementById('tr-wm').value,
+      whisperLang:  document.getElementById('tr-wl').value,
+      translateLang: document.getElementById('tr-tl').value,
+    };
+    if (outputDir) body.outputDir = outputDir;
+    const r = await fetch('/media-api/transcribe-local', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Local-Request': '1' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || r.status + ' ' + r.statusText);
+    }
+    const ct = r.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      const data = await r.json();
+      if (data.saved) { toast('Enregistré : ' + data.filename, 'ok'); }
+      else throw new Error(data.error || 'Erreur');
+    } else {
+      const blob = await r.blob();
+      const disp = r.headers.get('Content-Disposition') || '';
+      const m = disp.match(/filename\*=UTF-8''([^;\s]+)/i) || disp.match(/filename="([^"]+)"/i);
+      triggerDownload(blob, m ? decodeURIComponent(m[1]) : (_trMode === 'subtitle' ? 'subtitles.srt' : 'transcription.txt'));
+      toast('Transcription terminée', 'ok');
+    }
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    btn.disabled = false; lbl.textContent = 'Transcrire';
+  }
+}
 </script>
 </body>
 </html>

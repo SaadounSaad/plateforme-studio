@@ -898,6 +898,142 @@ apiRouter.post('/trim-local', requireLocalHeader, upload.single('file'), async (
   }
 });
 
+// ── transcribe-local: Whisper on a local file ─────────────────────────────────
+
+const MEDIA_EXTS = new Set([
+  '.mp4','.mkv','.avi','.mov','.webm','.flv','.m4v','.wmv','.mpg','.mpeg',
+  '.mp3','.wav','.m4a','.aac','.ogg','.flac','.opus','.wma',
+]);
+
+apiRouter.post('/transcribe-local', requireLocalHeader, async (req, res) => {
+  const { filePath, type = 'text', whisperModel, whisperLang, translateLang, outputDir } = req.body;
+
+  if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'filePath requis' });
+  if (!path.isAbsolute(filePath)) return res.status(400).json({ error: 'filePath doit être un chemin absolu' });
+
+  let resolvedFile;
+  try { resolvedFile = fs.realpathSync(filePath); }
+  catch { return res.status(400).json({ error: 'Fichier introuvable' }); }
+
+  if (!MEDIA_EXTS.has(path.extname(resolvedFile).toLowerCase()))
+    return res.status(400).json({ error: 'Extension non supportée (vidéo ou audio requis)' });
+
+  if (!hasWhisper()) return res.status(500).json({ error: 'Whisper non disponible' });
+  const py       = getPythonBin();
+  const ffmpegBin = hasFfmpeg();
+  if (!ffmpegBin) return res.status(500).json({ error: 'ffmpeg manquant' });
+
+  const model  = whisperModel || 'base';
+  if (!WHISPER_MODELS.has(model)) return res.status(400).json({ error: 'Modèle whisper invalide' });
+  const reqLang = whisperLang || 'auto';
+  if (!WHISPER_LANGS.has(reqLang)) return res.status(400).json({ error: 'Langue whisper invalide' });
+  const tLang  = translateLang || 'none';
+  if (!TRANSLATE_LANGS.has(tLang)) return res.status(400).json({ error: 'Langue de traduction invalide' });
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'transcribe-'));
+  try {
+    const wavPath    = path.join(tmpDir, 'audio.wav');
+    const wavPathEsc = wavPath.replace(/\\/g, '\\\\');
+    await runSpawn(ffmpegBin, ['-y', '-i', resolvedFile, '-ar', '16000', '-ac', '1', '-vn', wavPath]);
+
+    const baseName = path.basename(resolvedFile, path.extname(resolvedFile))
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 150);
+    const lang = reqLang !== 'auto' ? `language="${reqLang}",` : '';
+
+    let outName, outPath;
+
+    if (type === 'subtitle') {
+      const srtTmp    = path.join(tmpDir, 'sub.srt');
+      const srtTmpEsc = srtTmp.replace(/\\/g, '\\\\');
+      const translateBlock = tLang !== 'none' ? `
+try:
+    from deep_translator import GoogleTranslator
+    tr = GoogleTranslator(source='auto', target='${tLang}')
+    blocks = [b for b in srt.strip().split("\\n\\n") if b.strip()]
+    out = []
+    for block in blocks:
+        parts = block.split("\\n", 2)
+        if len(parts) >= 3:
+            try: parts[2] = tr.translate(parts[2]) or parts[2]
+            except: pass
+            out.append("\\n".join(parts))
+        else:
+            out.append(block)
+    srt = "\\n\\n".join(out)
+except ImportError:
+    pass
+` : '';
+      const pyScript = `
+import sys, io, whisper
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+def fmt(s):
+    h=int(s//3600); m=int((s%3600)//60); sec=int(s%60); ms=int((s%1)*1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+model = whisper.load_model("${model}")
+r = model.transcribe(r"${wavPathEsc}", ${lang} fp16=False, verbose=False)
+lines = []
+for i, seg in enumerate(r["segments"], 1):
+    lines += [str(i), f"{fmt(seg['start'])} --> {fmt(seg['end'])}", seg['text'].strip(), ""]
+srt = "\\n".join(lines)
+${translateBlock}
+with open(r"${srtTmpEsc}", "w", encoding="utf-8") as f:
+    f.write(srt)
+print("ok")
+`;
+      await runSpawn(py, ['-c', pyScript]);
+      if (!fs.existsSync(srtTmp)) throw new Error('Génération SRT échouée');
+      const suffix = tLang !== 'none' ? `_${tLang}` : '';
+      outName = `${baseName}${suffix}.srt`;
+      outPath = path.join(tmpDir, outName);
+      fs.renameSync(srtTmp, outPath);
+    } else {
+      const txtTmp    = path.join(tmpDir, 'out.txt');
+      const txtTmpEsc = txtTmp.replace(/\\/g, '\\\\');
+      const pyScript = `
+import sys, io, whisper
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+model = whisper.load_model("${model}")
+r = model.transcribe(r"${wavPathEsc}", ${lang} fp16=False, verbose=False)
+with open(r"${txtTmpEsc}", "w", encoding="utf-8") as f:
+    f.write(r["text"].strip())
+print("ok")
+`;
+      await runSpawn(py, ['-c', pyScript]);
+      if (!fs.existsSync(txtTmp)) throw new Error('Transcription échouée');
+      outName = `${baseName}_whisper.txt`;
+      outPath = path.join(tmpDir, outName);
+      fs.renameSync(txtTmp, outPath);
+    }
+
+    if (outputDir) {
+      const rawDir = String(outputDir);
+      if (!path.isAbsolute(rawDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        return res.status(400).json({ error: 'outputDir doit être absolu' });
+      }
+      let resolvedDir;
+      try { resolvedDir = fs.realpathSync(rawDir); }
+      catch { fs.rmSync(tmpDir, { recursive: true, force: true }); return res.status(400).json({ error: `Dossier introuvable : ${rawDir}` }); }
+      if (/[/\\]|\.\./.test(outName)) { fs.rmSync(tmpDir, { recursive: true, force: true }); return res.status(400).json({ error: 'Nom fichier invalide' }); }
+      const dest = path.join(resolvedDir, outName);
+      fs.copyFileSync(outPath, dest, fs.constants.COPYFILE_EXCL);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      return res.json({ saved: true, path: dest, filename: outName });
+    }
+
+    const stat = fs.statSync(outPath);
+    res.setHeader('Content-Disposition', buildContentDisposition(outName));
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    const stream = fs.createReadStream(outPath);
+    stream.pipe(res);
+    stream.on('close', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
+  } catch (err) {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  YT-DL v2  →  http://localhost:${PORT}`);
   console.log(`  yt-dlp  : ${getYtDlpBin()  ? '✓' : '✗'}`);
