@@ -666,6 +666,10 @@ apiRouter.post('/download', requireLocalHeader, async (req, res) => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
         return res.status(400).json({ error: `Dossier introuvable : ${rawDir}` });
       }
+      if (!fs.statSync(resolvedDir).isDirectory()) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        return res.status(400).json({ error: `outputDir doit être un dossier, pas un fichier : ${resolvedDir}` });
+      }
       // Reject filenames with path traversal sequences or separators
       if (!file || /[/\\]|\.\./.test(file)) {
         fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -1014,6 +1018,10 @@ print("ok")
       let resolvedDir;
       try { resolvedDir = fs.realpathSync(rawDir); }
       catch { fs.rmSync(tmpDir, { recursive: true, force: true }); return res.status(400).json({ error: `Dossier introuvable : ${rawDir}` }); }
+      if (!fs.statSync(resolvedDir).isDirectory()) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        return res.status(400).json({ error: `outputDir doit être un dossier, pas un fichier : ${resolvedDir}` });
+      }
       if (/[/\\]|\.\./.test(outName)) { fs.rmSync(tmpDir, { recursive: true, force: true }); return res.status(400).json({ error: 'Nom fichier invalide' }); }
       const dest = path.join(resolvedDir, outName);
       fs.copyFileSync(outPath, dest, fs.constants.COPYFILE_EXCL);
