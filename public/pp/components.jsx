@@ -319,12 +319,13 @@ function Spinner({ label }) {
 
 // ── Copy helper ───────────────────────────────────────────
 function copyText(str, toast, label = 'Copié dans le presse-papier') {
+  const fail = () => { if (toast) toast('err', 'Copie impossible'); };
   try {
-    navigator.clipboard.writeText(str);
-    if (toast) toast('ok', label);
-  } catch (e) {
-    if (toast) toast('err', 'Copie impossible');
-  }
+    navigator.clipboard.writeText(str).then(
+      () => { if (toast) toast('ok', label); },
+      fail
+    );
+  } catch (e) { fail(); }
 }
 
 // ── Download helper ───────────────────────────────────────

@@ -210,11 +210,10 @@ function XMLView({ src }) {
     } else {
       const m = trimmed.match(/^(<\/?[\w_]+)(.*?)(\/?>)(.*?)(<\/[\w_]+>)?$/);
       if (m) {
-        const attrs = m[2].replace(/([\w-]+)=("[^"]*")/g, '$1$2');
-        const attrParts = attrs.split(/[]/).map((p, i) => {
-          if (p.startsWith('')) {
-            const [name, val] = p.slice(1).split('');
-            return <React.Fragment key={i}><span className="a">{name}</span>=<span className="s">{val}</span></React.Fragment>;
+        const attrParts = m[2].split(/([\w-]+="[^"]*")/g).map((p, i) => {
+          const am = p.match(/^([\w-]+)=("[^"]*")$/);
+          if (am) {
+            return <React.Fragment key={i}><span className="a">{am[1]}</span>=<span className="s">{am[2]}</span></React.Fragment>;
           }
           return <span key={i}>{p}</span>;
         });

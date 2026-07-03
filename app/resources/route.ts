@@ -6,10 +6,10 @@ import os from 'os'
 const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills')
 
 function parseFrontmatter(content: string): Record<string, string> {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---/)
+  const match = content.match(/^---\s*\n([\s\S]*?)\r?\n---/)
   if (!match) return {}
   const fm: Record<string, string> = {}
-  for (const line of match[1].split('\n')) {
+  for (const line of match[1].split(/\r?\n/)) {
     const m = line.match(/^(\w[\w-]*):\s*(.+)$/)
     if (m) fm[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, '')
   }

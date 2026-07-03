@@ -2,11 +2,24 @@
 // api.jsx — All server fetch wrappers
 // ============================================================
 
-const API_MODEL = 'claude-sonnet-4-6';
+const API_MODEL = 'claude-sonnet-5';
 
 // Strip markdown code fences Claude sometimes adds despite instructions
 function stripFence(s) {
   return (s || '').replace(/^```(?:\w+)?\s*/,'').replace(/\s*```$/,'').trim();
+}
+
+// Extract the first JSON object/array from a response, tolerating
+// preamble text or markdown fences around the JSON
+function extractJSON(raw) {
+  const s = stripFence(raw);
+  try { return JSON.parse(s); } catch(e) {}
+  const start = s.search(/[{[]/);
+  if (start === -1) throw new Error('Réponse sans JSON : ' + s.slice(0, 120));
+  const open = s[start], close = open === '{' ? '}' : ']';
+  const end = s.lastIndexOf(close);
+  if (end <= start) throw new Error('JSON incomplet (réponse tronquée ?)');
+  return JSON.parse(s.slice(start, end + 1));
 }
 
 // ── Core Claude call ──────────────────────────────────────
@@ -101,8 +114,7 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas d'explication) :
     messages: [{ role: 'user', content: prompt }],
     max_tokens: 1024
   });
-  const jsonStr = raw.trim().replace(/^```json\s*/,'').replace(/\s*```$/,'');
-  return JSON.parse(jsonStr);
+  return extractJSON(raw);
 }
 
 // ── Mode B: generate CLAUDE.md ────────────────────────────
@@ -180,8 +192,7 @@ ARCHITECTURE.md : ## Vue d'ensemble, ## Stack, ## Structure dossiers (arborescen
     messages: [{ role: 'user', content: prompt }],
     max_tokens: 3500
   });
-  const jsonStr = raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');
-  return JSON.parse(jsonStr);
+  return extractJSON(raw);
 }
 
 // ── Mode B: generate getting-started guide ────────────────
@@ -269,84 +280,98 @@ async function claudeCallWith(model, { system, messages, max_tokens = 1500 }) {
 // ── Mode C: Classify task complexity → model tier ────────
 // Uses Sonnet (fast, cheap) — classification is a medium task
 async function apiClassifyTask(taskDesc) {
-  const raw = await claudeCallWith('claude-sonnet-4-6', {
-    system: `Tu es un expert en architecture LLM et prompt engineering.
-Analyse la tâche décrite et détermine le tier de complexité optimal.
+  const raw = await claudeCallWith('claude-sonnet-5', {
+    system: `Tu es un routeur expert de la gamme de modèles Anthropic. Analyse la tâche décrite et choisis le tier au meilleur ratio coût/performance.
 
 Tiers disponibles :
-- haiku  : Tâches simples. Extraction, classification, traduction courte, reformatage, Q&R factuelles courtes.
-- sonnet : Tâches moyennes. Rédaction structurée, analyse documentaire, code review, génération de contenu structuré.
-- opus   : Tâches complexes. Raisonnement multi-étapes, architecture logicielle, debug profond, synthèse multi-source, jugement nuancé, ambiguïté forte.
-- fable  : Tâches frontières. Preuve mathématique, raisonnement inédit, expertise PhD-level, multi-domaine très complexe.
+- haiku  (Haiku 4.5) : tâche simple et mécanique. Extraction, classification, reformatage, traduction courte, Q&R factuelle. Un seul passage, aucun jugement requis.
+- sonnet (Sonnet 5)  : tâche standard. Rédaction structurée, analyse d'un document, code courant, résumé, contenu créatif bien cadré. Quasi-niveau Opus sur le code à coût réduit.
+- opus   (Opus 4.8)  : tâche complexe. Sous-problèmes interdépendants, architecture logicielle, debug difficile, synthèse multi-sources, jugement nuancé, forte ambiguïté, long horizon.
+- fable  (Fable 5)   : frontière. Preuve mathématique, raisonnement inédit, expertise PhD multi-domaines, travail agentique très long où Opus échouerait probablement, enjeu critique.
 
-Règles de classification :
-- Plusieurs sous-problèmes interdépendants → opus minimum
-- Jugement nuancé ou expertise rare → opus/fable
-- Output structuré > 500 tokens → sonnet minimum
-- Créativité complexe ou style exigeant → sonnet minimum
-- Incertitude sur la bonne approche → tier supérieur
+Règles de décision :
+1. ≥ 2 sous-problèmes interdépendants → opus minimum
+2. Expertise rare ou domaine à enjeu (juridique, médical, financier) avec jugement → opus minimum
+3. Volumineux ≠ complexe : une tâche simple sur un long document reste haiku/sonnet
+4. Créativité avec exigence de style → sonnet ; créativité + stratégie ou arbitrages → opus
+5. Hésitation entre deux tiers → prends le supérieur et mets confidence < 0.7
+6. fable est réservé aux cas où opus échouerait probablement — pas un opus « premium »
 
-Réponds UNIQUEMENT avec ce JSON valide (pas de markdown) :
-{"tier":"haiku|sonnet|opus|fable","justification":"1-2 phrases expliquant le choix","confidence":0.0-1.0,"signals":["signal1","signal2","signal3"]}`,
+Réponds UNIQUEMENT avec ce JSON valide, sans markdown ni texte autour :
+{"tier":"haiku|sonnet|opus|fable","justification":"1-2 phrases en français expliquant le choix","confidence":0.85,"signals":["signal détecté 1","signal 2","signal 3"]}`,
     messages: [{ role: 'user', content: `Tâche à classifier :\n\n${taskDesc}` }],
-    max_tokens: 350
+    max_tokens: 400
   });
-  const json = raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');
-  return JSON.parse(json);
+  const c = extractJSON(raw);
+  if (!c || !['haiku','sonnet','opus','fable'].includes(c.tier)) {
+    throw new Error('Classification invalide, réessaie');
+  }
+  return c;
 }
 
 // ── Mode C: Generate boosted prompt for target tier ───────
 // Uses Opus — prompt generation is a complex creative task
 async function apiGenerateBoostedPrompt(taskDesc, tier, domain) {
   const TIER_STRATEGIES = {
-    haiku: `TIER : HAIKU — tâche simple.
+    haiku: `TIER CIBLE : HAIKU 4.5 — tâche simple, vitesse maximale.
 Stratégie : prompt ultra-direct, zéro overhead cognitif, instructions atomiques.
-- PAS de <thinking> (surcharge inutile sur tâche simple)
-- Rôle court et précis (1 ligne max)
-- Instructions séquentielles numérotées, chaque étape = 1 action atomique
-- Output format avec exemple concret inline
-- Contraintes négatives si pertinentes (ce que Claude NE doit PAS faire)`,
+- PAS de <thinking>, pas de décomposition, pas d'auto-critique (surcharge inutile qui dégrade la latence)
+- Rôle en 1 ligne, hyper-spécifique à la tâche (pas de "world-class expert" générique)
+- Instructions séquentielles numérotées, chaque étape = 1 action atomique et vérifiable
+- <output_format> avec 1 exemple concret inline montrant EXACTEMENT la sortie attendue
+- Cas limites explicitement traités (input vide, ambigu, hors sujet → quoi faire)
+- 2-3 contraintes négatives max, uniquement celles qui préviennent les erreurs probables
+- cot_required: false`,
 
-    sonnet: `TIER : SONNET — tâche moyenne.
-Stratégie : structure XML claire + rôle expert + CoT sélectif.
-- Rôle expert précis avec domaine d'autorité
-- Instructions XML structurées (<role>, <instructions>, <output_format>)
-- CoT UNIQUEMENT pour les sous-parties non-triviales : "For [étape complexe], reason step by step before answering"
-- Few-shot example si output format ambigu
-- Variable d'entrée {{NOM}} en majuscules`,
+    sonnet: `TIER CIBLE : SONNET 5 — tâche standard, quasi-niveau Opus sur le code et la rédaction.
+Sonnet 5 a un thinking adaptatif natif et suit les instructions TRÈS littéralement.
+Stratégie : structure XML nette + rôle expert + portée explicite.
+- Rôle expert précis avec domaine d'autorité et contexte de travail
+- Instructions XML (<role>, <instructions>, <context>, <output_format>) sans sur-échafaudage
+- NE PAS forcer de CoT manuel ("think step by step" partout) — le thinking adaptatif s'en charge ; réserve "reason carefully before answering" à 1 sous-étape réellement difficile maximum
+- Instruction de PORTÉE explicite : Sonnet 5 ne généralise pas silencieusement ("Apply this to EVERY section, not just the first")
+- 1 exemple few-shot INPUT→OUTPUT si le format de sortie est ambigu
+- Variable d'entrée {{NOM}} en majuscules, positionnée en fin de prompt
+- cot_required: false`,
 
-    opus: `TIER : OPUS — objectif : performance niveau FABLE 5.
-Les 5 mécanismes OBLIGATOIRES dans le system prompt généré :
+    opus: `TIER CIBLE : OPUS 4.8 — objectif : extraire une performance niveau FABLE 5.
+Les 5 mécanismes de boost OBLIGATOIRES dans le system_prompt généré :
 
-1. THINKING FORCÉ : "Before EVERY response, reason through the problem in <thinking></thinking> tags. Explore alternatives, check assumptions, identify edge cases. Never skip this."
+1. THINKING FORCÉ : "Before EVERY response, reason through the problem in <thinking></thinking> tags: explore at least 2 approaches, check assumptions, identify edge cases. Never skip this."
 
-2. DÉCOMPOSITION MANDATÉE : "For any problem with 2+ parts: first list ALL sub-problems and your approach to each. Then solve one by one."
+2. DÉCOMPOSITION MANDATÉE : "For any problem with 2+ parts: first list ALL sub-problems and your approach to each, then solve them one by one. Do not interleave."
 
-3. CALIBRATION EXPERT : "You are a world-class expert in [domaine adapté]. Your standard: match the quality of the best published work in the field. If a junior analyst could have written it, rewrite it."
+3. CALIBRATION EXPERT : "You are a world-class expert in [domaine adapté à la tâche]. Your bar: the best published work in the field. If a junior professional could have produced it, redo it."
 
-4. AUTO-CRITIQUE CONSTITUTIONNELLE : "After drafting, review: (a) Is every claim accurate? (b) Did I miss anything important? (c) Is this the best possible structure? Revise before responding."
+4. AUTO-CRITIQUE CONSTITUTIONNELLE : "After drafting, audit: (a) Is every claim accurate and supported? (b) What did I miss? (c) Is this the strongest possible structure? Revise once before responding."
 
-5. PROTOCOLE INCERTITUDE : "Never hallucinate. When confidence < 90%, signal explicitly: '[à vérifier]', 'je suppose que...', 'selon mes connaissances générales...'. Better to acknowledge uncertainty than to fabricate."`,
+5. PROTOCOLE INCERTITUDE : "Never fabricate. When confidence < 90% on a claim, flag it explicitly ('[à vérifier]', 'hypothèse:'). An acknowledged gap beats a confident error."
 
-    fable: `TIER : FABLE 5 — tâche frontière.
-Fable 5 raisonne naturellement en profondeur — ne pas forcer de CoT artificiel.
-Stratégie : structure riche + contexte maximal + exemples haute qualité.
-- Rôle avec autorité maximale et contexte de travail précis
-- XML structuré complet avec <context> riche
-- 1-2 exemples few-shot de TRÈS haute qualité montrant le niveau attendu
-- Output format précis avec critères de qualité explicites
-- Contraintes de précision et de profondeur`
+En plus : décision autonome sur les choix mineurs ("For minor choices, pick a reasonable option and note it rather than asking"), et ancrage des affirmations de progrès sur des éléments vérifiables.
+- cot_required: true`,
+
+    fable: `TIER CIBLE : FABLE 5 — tâche frontière.
+RÈGLE D'OR : Fable 5 raisonne nativement en profondeur. Les prompts sur-prescriptifs (CoT forcé, étapes détaillées, échafaudage "think step by step") DÉGRADENT sa performance. Prescris le QUOI, jamais le COMMENT.
+Stratégie : objectif net + contexte maximal + barre de qualité explicite.
+- Rôle avec autorité et mission claires, SANS lui dicter sa méthode de raisonnement
+- <context> le plus riche possible : pourquoi la tâche existe, pour qui, ce que le résultat permet, contraintes réelles ("Give the reason, not just the request")
+- Objectif formulé comme critères de succès vérifiables, pas comme séquence d'étapes
+- 1-2 exemples few-shot de TRÈS haute qualité montrant le NIVEAU attendu (pas le procédé)
+- <output_format> avec critères de qualité explicites (profondeur, précision, sources)
+- Contraintes de périmètre : ce qui est HORS scope, quand s'arrêter, incertitude signalée explicitement
+- Anti-surplanification : "When you have enough information to act, act."
+- cot_required: false (le thinking est natif et toujours actif)`
   };
 
   const raw = await claudeCallWith('claude-opus-4-8', {
-    system: `Tu es un expert prompt engineer Anthropic. Tu génères des prompts "boostés" optimisés pour extraire le maximum de performance d'un modèle cible.
+    system: `Tu es un prompt engineer expert de la gamme Anthropic. Tu génères des prompts "boostés" qui extraient le maximum de performance du modèle cible — chaque tier a une stratégie différente et incompatible avec les autres : applique STRICTEMENT celle du tier demandé.
 
 Règles absolues :
-- Le system_prompt doit être en anglais (meilleure performance sur les modèles Anthropic)
-- Le user_template peut être dans la langue de la tâche
-- Utilise les XML tags Anthropic (<role>, <instructions>, <context>, <examples>, <output_format>, <constraints>)
-- Les variables sont en {{MAJUSCULES}}
-- PAS de markdown dans les prompts générés — uniquement du texte structuré XML
+- Le system_prompt est en anglais (meilleure performance), adapté au domaine de la tâche — jamais générique
+- Le user_template est dans la langue de la tâche et contient les {{VARIABLES}} en MAJUSCULES
+- XML tags Anthropic (<role>, <instructions>, <context>, <examples>, <output_format>, <constraints>) — pas de markdown dans les prompts générés
+- Chaque variable du user_template apparaît dans "variables"
+- usage_tips : 2-4 conseils concrets et spécifiques à CETTE tâche (où coller le prompt, quoi mettre dans les variables, comment itérer) — pas de généralités
 
 ${TIER_STRATEGIES[tier]}`,
     messages: [{ role: 'user', content: `Génère un prompt boosté pour cette tâche.
@@ -354,12 +379,13 @@ ${TIER_STRATEGIES[tier]}`,
 Tâche : ${taskDesc}${domain ? `\nDomaine : ${domain}` : ''}
 Tier cible : ${tier}
 
-Réponds UNIQUEMENT avec ce JSON valide (pas de markdown wrapper) :
+Réponds UNIQUEMENT avec ce JSON valide (pas de markdown wrapper, échappe correctement les retours à la ligne) :
 {"system_prompt":"...","user_template":"...","variables":["VAR1"],"usage_tips":["conseil1","conseil2"],"cot_required":true}` }],
-    max_tokens: 2500
+    max_tokens: 4000
   });
-  const json = raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');
-  return JSON.parse(json);
+  const res = extractJSON(raw);
+  if (!res || !res.system_prompt) throw new Error('Génération invalide, réessaie');
+  return res;
 }
 
 Object.assign(window, {

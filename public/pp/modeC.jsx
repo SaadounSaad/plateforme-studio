@@ -3,10 +3,10 @@
 // ============================================================
 
 const TIER_CONFIG = {
-  haiku:  { label: 'Haiku 4.5',  model: 'claude-haiku-4-5-20251001', color: '#22c55e', bg: '#f0fdf4', desc: 'Tâche simple · Prompt direct, zéro overhead cognitif' },
-  sonnet: { label: 'Sonnet 4.6', model: 'claude-sonnet-4-6',          color: '#3b82f6', bg: '#eff6ff', desc: 'Tâche moyenne · XML structuré + CoT sélectif' },
-  opus:   { label: 'Opus 4.8',   model: 'claude-opus-4-8',            color: '#8b5cf6', bg: '#f5f3ff', desc: 'Tâche complexe · CoT forcé + auto-critique → niveau Fable 5' },
-  fable:  { label: 'Fable 5',    model: 'claude-fable-5',             color: '#f59e0b', bg: '#fffbeb', desc: 'Frontière · Structure riche + exemples haute qualité' },
+  haiku:  { label: 'Haiku 4.5', model: 'claude-haiku-4-5', color: '#22c55e', bg: '#f0fdf4', desc: 'Tâche simple · Prompt direct, zéro overhead cognitif' },
+  sonnet: { label: 'Sonnet 5',  model: 'claude-sonnet-5',  color: '#3b82f6', bg: '#eff6ff', desc: 'Tâche moyenne · XML structuré + thinking adaptatif natif' },
+  opus:   { label: 'Opus 4.8',  model: 'claude-opus-4-8',  color: '#8b5cf6', bg: '#f5f3ff', desc: 'Tâche complexe · Boost 5 mécanismes → niveau Fable 5' },
+  fable:  { label: 'Fable 5',   model: 'claude-fable-5',   color: '#f59e0b', bg: '#fffbeb', desc: 'Frontière · Objectif + contexte riches, sans sur-prescription' },
 };
 
 const DOMAIN_OPTS_C = [
@@ -241,6 +241,9 @@ function ModeC({ toast }) {
     const item = {
       id: Date.now(),
       task: taskDesc.slice(0, 80) + (taskDesc.length > 80 ? '…' : ''),
+      taskFull: taskDesc,
+      classif,
+      domain,
       tier: selTier,
       date: new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }),
       ...result
@@ -251,6 +254,10 @@ function ModeC({ toast }) {
 
   const restore = (p) => {
     setResult({ system_prompt: p.system_prompt, user_template: p.user_template, variables: p.variables, usage_tips: p.usage_tips, cot_required: p.cot_required });
+    setTaskDesc(p.taskFull || p.task || '');
+    setDomain(p.domain || '');
+    // Sans classif, le panneau gauche n'affiche aucun bouton (régénérer / nouvelle tâche)
+    setClassif(p.classif || { tier: p.tier, confidence: 1, justification: 'Restauré depuis la bibliothèque.', signals: [] });
     setSelTier(p.tier);
     setPhase('done');
     setRightTab('prompt');
