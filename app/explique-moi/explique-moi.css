@@ -1,0 +1,40 @@
+/* ExpliqueMoi — Design tokens: Ivory & Bronze */
+
+.explique-moi-scope {
+  --stage: #f8f4ed;
+  --stage-dark: #2c251e;
+  --paper: #f8f4ed;
+  --paper-dark: #1e1914;
+  --ink: #2c251e;
+  --ink-light: #f8f4ed;
+  --muted: #8a7e72;
+  --line: #e6dfd4;
+  --line-dark: rgba(44, 37, 30, 0.10);
+  --accent: #9c6a3c;
+  --accent-light: #c4884e;
+  --accent-dim: rgba(156, 106, 60, 0.08);
+  --accent-glow: rgba(156, 106, 60, 0.12);
+  --success: #5a8a5a;
+
+  --serif: 'DM Serif Display', 'Iowan Old Style', Georgia, serif;
+  --sans: 'DM Sans', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  background: var(--stage);
+  color: var(--ink);
+  font-family: var(--sans);
+  min-height: 100vh;
+}
+
+.explique-moi-scope * {
+  box-sizing: border-box;
+}
+
+/* Hide scrollbar inside mobile frame */
+.explique-moi-scope .em-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.explique-moi-scope .em-scroll {
+  scrollbar-width: none;
+}
