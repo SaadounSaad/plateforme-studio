@@ -1,0 +1,4 @@
+.env
+.loopforge_memory/
+__pycache__/
+output/
