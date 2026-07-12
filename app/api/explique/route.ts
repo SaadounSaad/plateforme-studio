@@ -6,6 +6,10 @@ const ALLOWED_MODELS = new Set([
   'claude-sonnet-5',
   'claude-haiku-4',
   'claude-opus-4-8',
+  // Models used by the ExpliqueMoi UI
+  'claude-haiku-4-5-20251001',
+  'claude-sonnet-4-5-20251001',
+  'claude-opus-4-8-20251001',
 ]);
 
 const ALLOWED_LEVELS = new Set(['simple', 'approfondir']);
