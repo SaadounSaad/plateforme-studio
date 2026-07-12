@@ -46,6 +46,12 @@ const ConvertIcon = () => (
     <path d="M6 20v-4h4" />
   </svg>
 );
+const ExplainIcon = () => (
+  <svg {...ic}>
+    <path d="M12 3a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-1.26A6.98 6.98 0 0 1 5 10a7 7 0 0 1 7-7z" />
+    <path d="M9 21h6" />
+  </svg>
+);
 
 const SunIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -69,6 +75,7 @@ type Tool = { name: string; desc: string; route: string; status: string; Icon: (
 
 /* ----------------------------- Data ----------------------------- */
 const TOOLS: Tool[] = [
+  { name: "ExpliqueMoi", desc: "Expliquez n'importe quel concept simplement, avec analogies et exemples concrets.", route: "/explique-moi", status: "available", Icon: ExplainIcon },
   { name: "Prompt Perfect", desc: "Prompts Claude en XML structuré, avec Advisor IA et Skills.", route: "/prompt-perfect", status: "available", Icon: PromptIcon },
   { name: "OCR", desc: "Extrayez le texte de vos images et PDF en un instant.", route: "/ocr", status: "available", Icon: OcrIcon },
   { name: "PDF Split", desc: "Découpez, réorganisez et fusionnez vos documents PDF.", route: "/pdf-split", status: "available", Icon: SplitIcon },

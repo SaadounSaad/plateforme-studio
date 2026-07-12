@@ -10,9 +10,61 @@ const http     = require('http');
 const dns      = require('dns').promises;
 const net      = require('net');
 const multer   = require('multer');
+const crypto   = require('crypto');
 
 const app  = express();
 const PORT = process.env.PORT || 7880;
+
+// Security token for local-service CSRF guard. Change this in production via env.
+const CSRF_TOKEN = process.env.MEDIA_BACKEND_CSRF_TOKEN || 'media-backend-local-token-change-me';
+
+// Sandbox directory for all persistent downloads/transcriptions.
+const OUTPUT_ROOT_RAW = process.env.MEDIA_OUTPUT_DIR || path.join(os.homedir(), 'Downloads', 'media-backend-out');
+fs.mkdirSync(OUTPUT_ROOT_RAW, { recursive: true });
+const OUTPUT_ROOT = fs.realpathSync(OUTPUT_ROOT_RAW);
+
+// Simple in-memory rate limiter (per IP).
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 min
+const RATE_LIMIT_MAX_REQUESTS = 100;
+const rateLimitStore = new Map();
+function isRateLimited(ip) {
+  const now = Date.now();
+  const record = rateLimitStore.get(ip);
+  if (!record || now > record.resetAt) {
+    rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  record.count++;
+  return record.count > RATE_LIMIT_MAX_REQUESTS;
+}
+
+// Concurrency guard for heavy workers (yt-dlp, ffmpeg, whisper).
+const MAX_CONCURRENT_JOBS = 3;
+let activeJobs = 0;
+const jobQueue = [];
+function runWithConcurrency(fn) {
+  return new Promise((resolve, reject) => {
+    jobQueue.push({ fn, resolve, reject });
+    pumpQueue();
+  });
+}
+function pumpQueue() {
+  while (activeJobs < MAX_CONCURRENT_JOBS && jobQueue.length > 0) {
+    activeJobs++;
+    const { fn, resolve, reject } = jobQueue.shift();
+    Promise.resolve()
+      .then(() => fn())
+      .then(resolve, reject)
+      .finally(() => { activeJobs--; pumpQueue(); });
+  }
+}
+
+function getClientIp(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+    || req.headers['x-real-ip']
+    || req.socket.remoteAddress
+    || 'unknown';
+}
 
 const ALLOWED_ORIGINS = new Set([
   'http://localhost:7880',
@@ -29,19 +81,40 @@ app.use(cors({
   credentials: false,
 }));
 
-// CSRF guard: mutating endpoints require this header.
-// A cross-origin page cannot set custom headers without a CORS preflight,
-// which will be blocked above — so this is defense-in-depth.
+// CSRF guard: mutating endpoints require a secret token.
+// The value must be shared with the frontend via env/config; it is not
+// guessable and is checked with timing-safe comparison.
 function requireLocalHeader(req, res, next) {
-  if (req.headers['x-local-request'] !== '1') {
+  const sent = Buffer.from(req.headers['x-local-request'] || '', 'utf8');
+  const expected = Buffer.from(CSRF_TOKEN, 'utf8');
+  if (sent.length !== expected.length || !crypto.timingSafeEqual(sent, expected)) {
     return res.status(403).json({ error: 'Accès refusé' });
   }
   next();
 }
 
+// Apply rate limiting to all API routes.
+app.use('/api', (req, res, next) => {
+  const ip = getClientIp(req);
+  if (isRateLimited(ip)) {
+    console.warn(`[rate-limit] ${ip} exceeded limit`);
+    return res.status(429).json({ error: 'Too many requests' });
+  }
+  next();
+});
+app.use('/media-api', (req, res, next) => {
+  const ip = getClientIp(req);
+  if (isRateLimited(ip)) {
+    console.warn(`[rate-limit] ${ip} exceeded limit`);
+    return res.status(429).json({ error: 'Too many requests' });
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
-app.use('/media-backend', express.static(__dirname));
+// DO NOT expose the backend source directory statically.
+// app.use('/media-backend', express.static(__dirname));
 
 // ── binary detection (memoized — run once, cached for process lifetime) ────────
 // Detection re-spawned on every /health call caused flaky ✗ badges under load
@@ -96,7 +169,7 @@ function hasFfmpeg() {
   ];
   for (const c of candidates) {
     try {
-      const r = spawnSync(c, ['-version'], { stdio: 'pipe', timeout: 10000, shell: true });
+      const r = spawnSync(c, ['-version'], { stdio: 'pipe', timeout: 10000 });
       if (r.status === 0 || (r.stdout && r.stdout.toString().includes('ffmpeg'))) { _ffmpeg = c; return _ffmpeg; }
     } catch {}
   }
@@ -140,6 +213,38 @@ const TRANSLATE_LANGS = new Set([
 // Audio container/codec names allowed from the client — these end up in output
 // filenames (path traversal guard) and ffmpeg/yt-dlp args.
 const AUDIO_EXTS = new Set(['mp3', 'aac', 'opus', 'm4a', 'wav', 'flac', 'ogg']);
+
+// ── generic error reporting (hides internals) ─────────────────────────────────
+
+function reportError(err) {
+  const errorId = crypto.randomUUID();
+  console.error(`[error ${errorId}]`, err);
+  return { error: 'Une erreur est survenue', errorId };
+}
+
+// ── sandbox helpers ───────────────────────────────────────────────────────────
+
+function resolveSandboxedOutputDir(rawDir) {
+  if (!rawDir) return null;
+  const s = String(rawDir);
+  if (!path.isAbsolute(s)) throw new Error('outputDir must be absolute');
+  const resolved = fs.realpathSync(s);
+  if (!fs.statSync(resolved).isDirectory()) throw new Error('outputDir must be a directory');
+  const rel = path.relative(OUTPUT_ROOT, resolved);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error('outputDir outside allowed sandbox');
+  }
+  return resolved;
+}
+
+function assertSandboxedFilePath(filePath) {
+  if (!filePath || typeof filePath !== 'string') throw new Error('filePath requis');
+  if (!path.isAbsolute(filePath)) throw new Error('filePath must be absolute');
+  const resolved = fs.realpathSync(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+  if (!MEDIA_EXTS.has(ext)) throw new Error('Extension non supportée');
+  return resolved;
+}
 
 // ── security: URL validation ─────────────────────────────────────────────────
 
@@ -223,19 +328,23 @@ function detectPlatform(url) {
 
 // ── info ─────────────────────────────────────────────────────────────────────
 
-apiRouter.post('/info', (req, res) => {
+apiRouter.post('/info', async (req, res) => {
   const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL manquante' });
-  try { assertHttpUrl(url); } catch { return res.status(400).json({ error: 'URL invalide' }); }
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'URL manquante' });
+  try { await assertPublicUrl(url); } catch { return res.status(400).json({ error: 'URL invalide' }); }
   const bin = getYtDlpBin();
   if (!bin) return res.status(500).json({ error: 'yt-dlp manquant' });
 
-  const proc = spawn(bin, ['--dump-json', '--no-playlist', '--no-warnings', '--', url]);
-  let out = '', err = '';
-  proc.stdout.on('data', d => out += d);
-  proc.stderr.on('data', d => err += d);
-  proc.on('close', code => {
-    if (code !== 0) return res.status(400).json({ error: err.trim() || 'Erreur yt-dlp' });
+  return runWithConcurrency(() => new Promise((resolve) => {
+    const proc = spawn(bin, ['--dump-json', '--no-playlist', '--no-warnings', '--', url]);
+    let out = '', err = '';
+    proc.stdout.on('data', d => out += d);
+    proc.stderr.on('data', d => err += d);
+    proc.on('close', code => {
+      if (code !== 0) {
+        resolve(res.status(400).json({ error: 'Erreur yt-dlp' }));
+        return;
+      }
     try {
       const info = JSON.parse(out);
       const platform = detectPlatform(url);
@@ -262,7 +371,8 @@ apiRouter.post('/info', (req, res) => {
         caps
       });
     } catch { res.status(500).json({ error: 'Parse error' }); }
-  });
+    });
+  }));
 });
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -386,7 +496,7 @@ async function getVideoTitle(url, bin) {
 // type: 'video' | 'audio' | 'image' | 'text'
 
 async function downloadItem(url, type, opts = {}) {
-  assertHttpUrl(url);
+  await assertPublicUrl(url);
   const bin = getYtDlpBin();
   if (!bin) throw new Error('yt-dlp manquant');
   const platform = detectPlatform(url);
@@ -650,27 +760,19 @@ apiRouter.post('/download', requireLocalHeader, async (req, res) => {
   const { url, type, formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime, outputDir } = req.body;
   if (!url || !type) return res.status(400).json({ error: 'url et type requis' });
   try {
-    const { tmpDir, file, mime } = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime });
+    const { tmpDir, file, mime } = await runWithConcurrency(() =>
+      downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang, startTime, endTime })
+    );
     const filePath = path.join(tmpDir, file);
 
     if (outputDir) {
-      const rawDir = String(outputDir);
-      if (!path.isAbsolute(rawDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-        return res.status(400).json({ error: 'outputDir doit être un chemin absolu' });
-      }
       let resolvedDir;
       try {
-        resolvedDir = fs.realpathSync(rawDir);
-      } catch {
+        resolvedDir = resolveSandboxedOutputDir(outputDir);
+      } catch (err) {
         fs.rmSync(tmpDir, { recursive: true, force: true });
-        return res.status(400).json({ error: `Dossier introuvable : ${rawDir}` });
+        return res.status(400).json({ error: 'outputDir invalide' });
       }
-      if (!fs.statSync(resolvedDir).isDirectory()) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-        return res.status(400).json({ error: `outputDir doit être un dossier, pas un fichier : ${resolvedDir}` });
-      }
-      // Reject filenames with path traversal sequences or separators
       if (!file || /[/\\]|\.\./.test(file)) {
         fs.rmSync(tmpDir, { recursive: true, force: true });
         return res.status(400).json({ error: 'Nom de fichier invalide' });
@@ -678,7 +780,7 @@ apiRouter.post('/download', requireLocalHeader, async (req, res) => {
       const destPath = path.join(resolvedDir, file);
       fs.copyFileSync(filePath, destPath, fs.constants.COPYFILE_EXCL);
       fs.rmSync(tmpDir, { recursive: true, force: true });
-      return res.json({ saved: true, path: destPath, filename: file });
+      return res.json({ saved: true, filename: file });
     }
 
     const stat = fs.statSync(filePath);
@@ -689,7 +791,7 @@ apiRouter.post('/download', requireLocalHeader, async (req, res) => {
     stream.pipe(res);
     stream.on('close', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(reportError(err));
   }
 });
 
@@ -697,9 +799,8 @@ apiRouter.post('/download', requireLocalHeader, async (req, res) => {
 
 apiRouter.post('/batch', requireLocalHeader, async (req, res) => {
   const { items, types, formatId, audioExt, whisperModel, whisperLang, translateLang } = req.body;
-  // items: [{ url, label }]
-  // types: ['video','audio','image','text'] (selection)
-  if (!items?.length || !types?.length) return res.status(400).json({ error: 'items et types requis' });
+  const validationError = validateBatchPayload(items, types);
+  if (validationError) return res.status(400).json({ error: validationError });
 
   // SSE not suitable here since we stream a ZIP — we just stream the zip directly
   res.setHeader('Content-Type', 'application/zip');
@@ -710,12 +811,15 @@ apiRouter.post('/batch', requireLocalHeader, async (req, res) => {
 
   for (const item of items) {
     const { url } = item;
+    if (!url || typeof url !== 'string') continue;
     const folderName = (item.label || url).replace(/[^a-zA-Z0-9_\-\u0621-\u064A ]/g, '_').slice(0, 60);
 
     for (const type of types) {
       let tmpDir = null;
       try {
-        const result = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang });
+        const result = await runWithConcurrency(() =>
+          downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang })
+        );
         tmpDir = result.tmpDir;
         const filePath = path.join(tmpDir, result.file);
         archive.file(filePath, { name: `${folderName}/${type}/${result.file}` });
@@ -727,7 +831,7 @@ apiRouter.post('/batch', requireLocalHeader, async (req, res) => {
         });
       } catch (err) {
         // add error note as txt file
-        const errContent = `Erreur lors du traitement de ${url} (type: ${type})\n${err.message}`;
+        const errContent = `Erreur lors du traitement de ${url} (type: ${type})`;
         archive.append(errContent, { name: `${folderName}/${type}/_ERREUR.txt` });
         await new Promise(r => setTimeout(r, 100));
       } finally {
@@ -746,15 +850,42 @@ apiRouter.post('/batch', requireLocalHeader, async (req, res) => {
 // For simplicity we use a job map in memory
 
 const jobs = new Map();
+const MAX_BATCH_ITEMS = 10;
+const MAX_BATCH_TYPES = 4;
+const MAX_JOBS = 20;
+const JOB_TTL_MS = 30 * 60 * 1000;
+
+function cleanupJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  try { fs.rmSync(job.tmpRoot, { recursive: true, force: true }); } catch {}
+  jobs.delete(jobId);
+}
+
+function validateBatchPayload(items, types) {
+  if (!Array.isArray(items) || !Array.isArray(types)) return 'Payload invalide';
+  if (items.length === 0 || types.length === 0) return 'items et types requis';
+  if (items.length > MAX_BATCH_ITEMS) return `Max ${MAX_BATCH_ITEMS} items`;
+  if (types.length > MAX_BATCH_TYPES) return `Max ${MAX_BATCH_TYPES} types`;
+  const allowedTypes = new Set(['video', 'audio', 'image', 'text', 'subtitle']);
+  for (const t of types) if (!allowedTypes.has(t)) return `Type invalide: ${t}`;
+  return null;
+}
 
 apiRouter.post('/batch/start', requireLocalHeader, async (req, res) => {
   const { items, types, formatId, audioExt, whisperModel, whisperLang, translateLang } = req.body;
-  if (!items?.length || !types?.length) return res.status(400).json({ error: 'items et types requis' });
+  const validationError = validateBatchPayload(items, types);
+  if (validationError) return res.status(400).json({ error: validationError });
 
-  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  if (jobs.size >= MAX_JOBS) {
+    return res.status(429).json({ error: 'Trop de jobs en cours' });
+  }
+
+  const jobId = crypto.randomUUID();
   const total = items.length * types.length;
   const job = { id: jobId, status: 'running', done: 0, total, log: [], files: [], error: null };
   jobs.set(jobId, job);
+  const cleanupTimer = setTimeout(() => cleanupJob(jobId), JOB_TTL_MS);
 
   // run async
   (async () => {
@@ -763,13 +894,16 @@ apiRouter.post('/batch/start', requireLocalHeader, async (req, res) => {
 
     for (const item of items) {
       const { url } = item;
+      if (!url || typeof url !== 'string') continue;
       const folderName = (item.label || url).replace(/[^a-zA-Z0-9_\-\u0621-\u064A ]/g, '_').slice(0, 60);
 
       for (const type of types) {
         let tmpDir = null;
         try {
           job.log.push({ url, type, status: 'processing' });
-          const result = await downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang });
+          const result = await runWithConcurrency(() =>
+            downloadItem(url, type, { formatId, audioExt, whisperModel, whisperLang, translateLang })
+          );
           tmpDir = result.tmpDir;
           // copy file to stable location inside tmpRoot
           const destDir = path.join(tmpRoot, folderName, type);
@@ -779,10 +913,10 @@ apiRouter.post('/batch/start', requireLocalHeader, async (req, res) => {
           collected.push({ filePath: destPath, arcName: `${folderName}/${type}/${result.file}` });
           job.log[job.log.length - 1].status = 'done';
         } catch (err) {
-          const errMsg = `Erreur: ${err.message}`;
+          const errMsg = 'Erreur de traitement';
           const errPath = path.join(tmpRoot, folderName, type, '_ERREUR.txt');
           fs.mkdirSync(path.join(tmpRoot, folderName, type), { recursive: true });
-          fs.writeFileSync(errPath, `${url}\n${type}\n\n${err.message}`, 'utf8');
+          fs.writeFileSync(errPath, `${url}\n${type}\n\n${errMsg}`, 'utf8');
           collected.push({ filePath: errPath, arcName: `${folderName}/${type}/_ERREUR.txt` });
           job.log[job.log.length - 1].status = 'error';
           job.log[job.log.length - 1].error = errMsg;
@@ -810,7 +944,11 @@ apiRouter.post('/batch/start', requireLocalHeader, async (req, res) => {
     job.status  = 'done';
   })().catch(err => {
     job.status = 'error';
-    job.error  = err.message;
+    job.error  = 'Job failed';
+    console.error(`[batch/${jobId}] failed:`, err);
+  }).finally(() => {
+    clearTimeout(cleanupTimer);
+    setTimeout(() => cleanupJob(jobId), JOB_TTL_MS);
   });
 
   res.json({ jobId, total });
@@ -831,15 +969,17 @@ apiRouter.get('/batch/download/:jobId', (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
   const stream = fs.createReadStream(job.zipPath);
   stream.pipe(res);
-  stream.on('close', () => {
-    try { fs.rmSync(job.tmpRoot, { recursive: true, force: true }); } catch {}
-    jobs.delete(job.id);
-  });
+  stream.on('close', () => cleanupJob(job.id));
 });
 
-function timeToSeconds(t) {
+const TIME_RE = /^(?:(?:[01]?\d|2[0-3]):)?(?:[0-5]?\d:)?[0-5]?\d(?:\.\d+)?$/;
+
+function parseTime(t) {
+  if (typeof t !== 'string' || !TIME_RE.test(t)) throw new Error('Format de temps invalide');
   const parts = t.split(':').map(Number);
-  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0];
 }
 
 // ── trim local file ───────────────────────────────────────────────────────────
@@ -851,6 +991,17 @@ apiRouter.post('/trim-local', requireLocalHeader, upload.single('file'), async (
   if (!req.file) return res.status(400).json({ error: 'Fichier manquant' });
   if (!startTime && !endTime) return res.status(400).json({ error: 'startTime ou endTime requis' });
 
+  let startSec, endSec;
+  try {
+    if (startTime) startSec = parseTime(startTime);
+    if (endTime) endSec = parseTime(endTime);
+    if (startSec !== undefined && endSec !== undefined && endSec <= startSec) {
+      return res.status(400).json({ error: 'endTime doit être après startTime' });
+    }
+  } catch {
+    return res.status(400).json({ error: 'Format de temps invalide' });
+  }
+
   const ffmpegBin = hasFfmpeg();
   if (!ffmpegBin) return res.status(500).json({ error: 'ffmpeg manquant' });
 
@@ -861,21 +1012,19 @@ apiRouter.post('/trim-local', requireLocalHeader, upload.single('file'), async (
   const ext       = type === 'audio' ? (audioExt || 'mp3') : 'mp4';
   const outName   = path.basename(req.file.originalname || 'trim', path.extname(req.file.originalname || '')).replace(/[^\w\-]/g, '_') + '_trim.' + ext;
   const outPath   = path.join(os.tmpdir(), outName);
-  if (path.dirname(path.resolve(outPath)) !== path.resolve(os.tmpdir())) {
+  const rel = path.relative(os.tmpdir(), outPath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
     return res.status(400).json({ error: 'nom de fichier invalide' });
   }
 
   try {
-    const args = ['-y'];
+    const args = ['-y', '-nostdin', '-hide_banner', '-loglevel', 'error'];
     if (startTime) args.push('-ss', startTime);
     args.push('-i', inputPath);
     if (endTime && startTime) {
-      // -to on output side counts from output timeline start (0).
-      // Since -ss before -i does not shift output timeline, compute duration manually.
-      const durationSec = timeToSeconds(endTime) - timeToSeconds(startTime);
-      args.push('-t', String(durationSec));
+      args.push('-t', String(endSec - startSec));
     } else if (endTime) {
-      args.push('-t', String(timeToSeconds(endTime)));
+      args.push('-t', String(endSec));
     }
     if (type === 'audio') {
       args.push('-vn', '-acodec', ext === 'mp3' ? 'libmp3lame' : ext === 'aac' ? 'aac' : ext === 'opus' ? 'libopus' : 'aac');
@@ -884,7 +1033,7 @@ apiRouter.post('/trim-local', requireLocalHeader, upload.single('file'), async (
     }
     args.push(outPath);
 
-    await runSpawn(ffmpegBin, args);
+    await runWithConcurrency(() => runSpawn(ffmpegBin, args));
 
     const stat = fs.statSync(outPath);
     res.setHeader('Content-Disposition', buildContentDisposition(outName));
@@ -898,7 +1047,7 @@ apiRouter.post('/trim-local', requireLocalHeader, upload.single('file'), async (
     });
   } catch (err) {
     try { fs.unlinkSync(inputPath); } catch {}
-    res.status(500).json({ error: err.message });
+    res.status(500).json(reportError(err));
   }
 });
 
@@ -912,15 +1061,12 @@ const MEDIA_EXTS = new Set([
 apiRouter.post('/transcribe-local', requireLocalHeader, async (req, res) => {
   const { filePath, type = 'text', whisperModel, whisperLang, translateLang, outputDir } = req.body;
 
-  if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'filePath requis' });
-  if (!path.isAbsolute(filePath)) return res.status(400).json({ error: 'filePath doit être un chemin absolu' });
-
   let resolvedFile;
-  try { resolvedFile = fs.realpathSync(filePath); }
-  catch { return res.status(400).json({ error: 'Fichier introuvable' }); }
-
-  if (!MEDIA_EXTS.has(path.extname(resolvedFile).toLowerCase()))
-    return res.status(400).json({ error: 'Extension non supportée (vidéo ou audio requis)' });
+  try {
+    resolvedFile = assertSandboxedFilePath(filePath);
+  } catch (err) {
+    return res.status(400).json({ error: 'Fichier invalide' });
+  }
 
   if (!hasWhisper()) return res.status(500).json({ error: 'Whisper non disponible' });
   const py       = getPythonBin();
@@ -938,7 +1084,9 @@ apiRouter.post('/transcribe-local', requireLocalHeader, async (req, res) => {
   try {
     const wavPath    = path.join(tmpDir, 'audio.wav');
     const wavPathEsc = wavPath.replace(/\\/g, '\\\\');
-    await runSpawn(ffmpegBin, ['-y', '-i', resolvedFile, '-ar', '16000', '-ac', '1', '-vn', wavPath]);
+    await runWithConcurrency(() =>
+      runSpawn(ffmpegBin, ['-y', '-nostdin', '-hide_banner', '-loglevel', 'error', '-i', resolvedFile, '-ar', '16000', '-ac', '1', '-vn', wavPath])
+    );
 
     const baseName = path.basename(resolvedFile, path.extname(resolvedFile))
       .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 150);
@@ -984,7 +1132,7 @@ with open(r"${srtTmpEsc}", "w", encoding="utf-8") as f:
     f.write(srt)
 print("ok")
 `;
-      await runSpawn(py, ['-c', pyScript]);
+      await runWithConcurrency(() => runSpawn(py, ['-c', pyScript]));
       if (!fs.existsSync(srtTmp)) throw new Error('Génération SRT échouée');
       const suffix = tLang !== 'none' ? `_${tLang}` : '';
       outName = `${baseName}${suffix}.srt`;
@@ -1002,7 +1150,7 @@ with open(r"${txtTmpEsc}", "w", encoding="utf-8") as f:
     f.write(r["text"].strip())
 print("ok")
 `;
-      await runSpawn(py, ['-c', pyScript]);
+      await runWithConcurrency(() => runSpawn(py, ['-c', pyScript]));
       if (!fs.existsSync(txtTmp)) throw new Error('Transcription échouée');
       outName = `${baseName}_whisper.txt`;
       outPath = path.join(tmpDir, outName);
@@ -1010,23 +1158,18 @@ print("ok")
     }
 
     if (outputDir) {
-      const rawDir = String(outputDir);
-      if (!path.isAbsolute(rawDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-        return res.status(400).json({ error: 'outputDir doit être absolu' });
-      }
       let resolvedDir;
-      try { resolvedDir = fs.realpathSync(rawDir); }
-      catch { fs.rmSync(tmpDir, { recursive: true, force: true }); return res.status(400).json({ error: `Dossier introuvable : ${rawDir}` }); }
-      if (!fs.statSync(resolvedDir).isDirectory()) {
+      try {
+        resolvedDir = resolveSandboxedOutputDir(outputDir);
+      } catch {
         fs.rmSync(tmpDir, { recursive: true, force: true });
-        return res.status(400).json({ error: `outputDir doit être un dossier, pas un fichier : ${resolvedDir}` });
+        return res.status(400).json({ error: 'outputDir invalide' });
       }
       if (/[/\\]|\.\./.test(outName)) { fs.rmSync(tmpDir, { recursive: true, force: true }); return res.status(400).json({ error: 'Nom fichier invalide' }); }
       const dest = path.join(resolvedDir, outName);
       fs.copyFileSync(outPath, dest, fs.constants.COPYFILE_EXCL);
       fs.rmSync(tmpDir, { recursive: true, force: true });
-      return res.json({ saved: true, path: dest, filename: outName });
+      return res.json({ saved: true, filename: outName });
     }
 
     const stat = fs.statSync(outPath);
@@ -1038,7 +1181,7 @@ print("ok")
     stream.on('close', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
   } catch (err) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    res.status(500).json({ error: err.message });
+    res.status(500).json(reportError(err));
   }
 });
 

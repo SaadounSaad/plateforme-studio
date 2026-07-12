@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const BACKEND = 'http://localhost:7880'
+const CSRF_TOKEN = process.env.MEDIA_BACKEND_CSRF_TOKEN || 'media-backend-local-token-change-me'
 
 // Frontend hits /media-api/<x>. Map to backend:
 //   health        -> /health
@@ -14,12 +15,15 @@ function targetUrl(segments: string[], search: string) {
 async function proxy(request: NextRequest, segments: string[]) {
   const url = targetUrl(segments, request.nextUrl.search)
   try {
-    const init: RequestInit = { method: request.method }
+    const init: RequestInit = {
+      method: request.method,
+      headers: { 'X-Local-Request': CSRF_TOKEN },
+    }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       const ct = request.headers.get('content-type') || ''
       // Forward body as-is; preserve content-type for JSON and multipart
       init.body = await request.arrayBuffer()
-      init.headers = ct ? { 'content-type': ct } : undefined
+      if (ct) (init.headers as Record<string, string>)['content-type'] = ct
     }
     const res = await fetch(url, init)
     // Stream the response body through (videos / zips can be large)

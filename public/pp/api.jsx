@@ -9,19 +9,6 @@ function stripFence(s) {
   return (s || '').replace(/^```(?:\w+)?\s*/,'').replace(/\s*```$/,'').trim();
 }
 
-// Extract the first JSON object/array from a response, tolerating
-// preamble text or markdown fences around the JSON
-function extractJSON(raw) {
-  const s = stripFence(raw);
-  try { return JSON.parse(s); } catch(e) {}
-  const start = s.search(/[{[]/);
-  if (start === -1) throw new Error('Réponse sans JSON : ' + s.slice(0, 120));
-  const open = s[start], close = open === '{' ? '}' : ']';
-  const end = s.lastIndexOf(close);
-  if (end <= start) throw new Error('JSON incomplet (réponse tronquée ?)');
-  return JSON.parse(s.slice(start, end + 1));
-}
-
 // ── Core Claude call ──────────────────────────────────────
 async function claudeCall({ system, messages, max_tokens = 2000 }) {
   const body = { model: API_MODEL, max_tokens, messages };
@@ -102,19 +89,34 @@ ${chatSummary}
 
 <ressources_disponibles>
 ${resList}
-</ressources_disponibles>
+</ressources_disponibles>`;
 
-Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas d'explication) :
-[
-  {"id": "...", "justification": "1-2 phrases expliquant pourquoi cette ressource est utile pour CE projet spécifique"},
-  ...
-]`;
-
-  const raw = await claudeCall({
+  const res = await claudeToolCall('claude-sonnet-5', {
+    system: 'Tu sélectionnes des ressources pertinentes pour un projet Claude Code. Renvoie UNIQUEMENT via l\'outil fourni.',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 1024
+    max_tokens: 1024,
+    toolName: 'recommend_resources',
+    schema: {
+      type: 'object',
+      properties: {
+        recommendations: {
+          type: 'array',
+          minItems: 5,
+          maxItems: 8,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              justification: { type: 'string', description: '1-2 phrases expliquant pourquoi cette ressource est utile pour CE projet spécifique' }
+            },
+            required: ['id', 'justification']
+          }
+        }
+      },
+      required: ['recommendations']
+    }
   });
-  return extractJSON(raw);
+  return res.recommendations || [];
 }
 
 // ── Mode B: generate CLAUDE.md ────────────────────────────
@@ -179,20 +181,28 @@ Description: ${desc}${stack ? `\nStack: ${stack}` : ''}${goals ? `\nObjectifs: $
 </projet>
 ${chatSummary ? `\n<brainstorm>\n${chatSummary.slice(0, 1200)}\n</brainstorm>` : ''}
 
-Génère exactement ce JSON valide, sans markdown wrapper :
-{"orchestrateur":"...","prd":"...","architecture":"..."}
+Contraintes :
+- 200-350 mots par document
+- markdown, français
+- orchestrateur.md : ## Rôle, ## Agents disponibles (liste spécialistes à spawner selon tâche), ## Règles de coordination, ## Mémoire partagée
+- prd : ## Vision, ## Utilisateurs cibles, ## Fonctionnalités (MoSCoW), ## Critères de succès, ## Contraintes
+- architecture : ## Vue d'ensemble, ## Stack, ## Structure dossiers (arborescence), ## Flux de données, ## ADR`;
 
-orchestrateur.md : ## Rôle, ## Agents disponibles (liste spécialistes à spawner selon tâche), ## Règles de coordination, ## Mémoire partagée
-PRD : ## Vision, ## Utilisateurs cibles, ## Fonctionnalités (MoSCoW), ## Critères de succès, ## Contraintes
-ARCHITECTURE.md : ## Vue d'ensemble, ## Stack, ## Structure dossiers (arborescence), ## Flux de données, ## ADR
-
-200-350 mots par document, markdown, français. JSON uniquement en réponse.`;
-
-  const raw = await claudeCall({
+  return await claudeToolCall('claude-sonnet-5', {
+    system: 'Tu génères 3 documents projet en markdown français. Renvoie UNIQUEMENT via l\'outil fourni.',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 3500
+    max_tokens: 3500,
+    toolName: 'generate_project_docs',
+    schema: {
+      type: 'object',
+      properties: {
+        orchestrateur: { type: 'string', description: 'Contenu markdown de orchestrateur.md' },
+        prd: { type: 'string', description: 'Contenu markdown du PRD' },
+        architecture: { type: 'string', description: 'Contenu markdown de ARCHITECTURE.md' }
+      },
+      required: ['orchestrateur', 'prd', 'architecture']
+    }
   });
-  return extractJSON(raw);
 }
 
 // ── Mode B: generate getting-started guide ────────────────
@@ -263,6 +273,27 @@ Rules:
   });
 }
 
+// ── Structured tool call (forced JSON via Anthropic tool use) ─────────
+async function claudeToolCall(model, { system, messages, max_tokens = 2000, toolName, schema }) {
+  const body = {
+    model, max_tokens, messages,
+    tools: [{ name: toolName, description: 'Structured output', input_schema: schema }],
+    tool_choice: { type: 'tool', name: toolName }
+  };
+  if (system) body.system = system;
+  const resp = await fetch('/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message);
+  if (data.stop_reason === 'max_tokens') throw new Error('Réponse tronquée (max_tokens atteint)');
+  const block = (data.content || []).find(b => b.type === 'tool_use');
+  if (!block) throw new Error('Pas de sortie structurée dans la réponse');
+  return block.input;
+}
+
 // ── Generic call with explicit model ─────────────────────
 async function claudeCallWith(model, { system, messages, max_tokens = 1500 }) {
   const body = { model, max_tokens, messages };
@@ -280,7 +311,7 @@ async function claudeCallWith(model, { system, messages, max_tokens = 1500 }) {
 // ── Mode C: Classify task complexity → model tier ────────
 // Uses Sonnet (fast, cheap) — classification is a medium task
 async function apiClassifyTask(taskDesc) {
-  const raw = await claudeCallWith('claude-sonnet-5', {
+  return await claudeToolCall('claude-sonnet-5', {
     system: `Tu es un routeur expert de la gamme de modèles Anthropic. Analyse la tâche décrite et choisis le tier au meilleur ratio coût/performance.
 
 Tiers disponibles :
@@ -295,18 +326,21 @@ Règles de décision :
 3. Volumineux ≠ complexe : une tâche simple sur un long document reste haiku/sonnet
 4. Créativité avec exigence de style → sonnet ; créativité + stratégie ou arbitrages → opus
 5. Hésitation entre deux tiers → prends le supérieur et mets confidence < 0.7
-6. fable est réservé aux cas où opus échouerait probablement — pas un opus « premium »
-
-Réponds UNIQUEMENT avec ce JSON valide, sans markdown ni texte autour :
-{"tier":"haiku|sonnet|opus|fable","justification":"1-2 phrases en français expliquant le choix","confidence":0.85,"signals":["signal détecté 1","signal 2","signal 3"]}`,
+6. fable est réservé aux cas où opus échouerait probablement — pas un opus « premium »`,
     messages: [{ role: 'user', content: `Tâche à classifier :\n\n${taskDesc}` }],
-    max_tokens: 400
+    max_tokens: 400,
+    toolName: 'classify_task',
+    schema: {
+      type: 'object',
+      properties: {
+        tier: { type: 'string', enum: ['haiku', 'sonnet', 'opus', 'fable'] },
+        justification: { type: 'string', description: '1-2 phrases en français' },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+        signals: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5 }
+      },
+      required: ['tier', 'justification', 'confidence', 'signals']
+    }
   });
-  const c = extractJSON(raw);
-  if (!c || !['haiku','sonnet','opus','fable'].includes(c.tier)) {
-    throw new Error('Classification invalide, réessaie');
-  }
-  return c;
 }
 
 // ── Mode C: Generate boosted prompt for target tier ───────
@@ -363,7 +397,7 @@ Stratégie : objectif net + contexte maximal + barre de qualité explicite.
 - cot_required: false (le thinking est natif et toujours actif)`
   };
 
-  const raw = await claudeCallWith('claude-opus-4-8', {
+  const res = await claudeToolCall('claude-opus-4-8', {
     system: `Tu es un prompt engineer expert de la gamme Anthropic. Tu génères des prompts "boostés" qui extraient le maximum de performance du modèle cible — chaque tier a une stratégie différente et incompatible avec les autres : applique STRICTEMENT celle du tier demandé.
 
 Règles absolues :
@@ -377,19 +411,31 @@ ${TIER_STRATEGIES[tier]}`,
     messages: [{ role: 'user', content: `Génère un prompt boosté pour cette tâche.
 
 Tâche : ${taskDesc}${domain ? `\nDomaine : ${domain}` : ''}
-Tier cible : ${tier}
-
-Réponds UNIQUEMENT avec ce JSON valide (pas de markdown wrapper, échappe correctement les retours à la ligne) :
-{"system_prompt":"...","user_template":"...","variables":["VAR1"],"usage_tips":["conseil1","conseil2"],"cot_required":true}` }],
-    max_tokens: 4000
+Tier cible : ${tier}` }],
+    max_tokens: 8000,
+    toolName: 'boosted_prompt',
+    schema: {
+      type: 'object',
+      properties: {
+        system_prompt: { type: 'string' },
+        user_template: { type: 'string' },
+        variables: { type: 'array', items: { type: 'string' } },
+        usage_tips: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 4 },
+        cot_required: { type: 'boolean' }
+      },
+      required: ['system_prompt', 'user_template', 'variables', 'usage_tips', 'cot_required']
+    }
   });
-  const res = extractJSON(raw);
-  if (!res || !res.system_prompt) throw new Error('Génération invalide, réessaie');
+
+  // Réconciliation locale : la vérité = les {{VARS}} présentes dans le template
+  const found = [...new Set((res.user_template.match(/\{\{([A-Z0-9_]+)\}\}/g) || [])
+    .map(v => v.slice(2, -2)))];
+  res.variables = found;
   return res;
 }
 
 Object.assign(window, {
-  claudeCall, claudeCallWith,
+  claudeCall, claudeCallWith, claudeToolCall,
   apiRefinePrompt, apiRestructure, apiRefineChat,
   apiLoadResources, apiLoadResourceFile,
   apiRecommendResources, apiGenerateClaudeMd, apiBrainstormChat,
