@@ -5,13 +5,20 @@ Chaque projet finalisé est stocké ; les runs suivants rappellent le contexte
 pertinent au moment de la recherche.
 """
 
+import os
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent / ".loopforge_memory"
 
 
+def _default_path() -> Path:
+    """Surcharge par LOOPFORGE_MEMORY_PATH (isolation des runs d'évaluation)."""
+    return Path(os.getenv("LOOPFORGE_MEMORY_PATH", str(DB_PATH)))
+
+
 class VectorMemory:
-    def __init__(self, path: Path = DB_PATH):
+    def __init__(self, path: Path | None = None):
+        path = path or _default_path()
         import chromadb  # import paresseux : dépendance optionnelle
         self._client = chromadb.PersistentClient(path=str(path))
         self._col = self._client.get_or_create_collection("loopforge")

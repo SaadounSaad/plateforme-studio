@@ -2,3 +2,5 @@
 .loopforge_memory/
 __pycache__/
 output/
+eval/runs/
+eval/runlog.sqlite

@@ -1,0 +1,47 @@
+{
+  "id": "plateforme-v2",
+  "description": "Cas dore n2 - dogfood 2026-07-12. LoopForge specifie sa propre v2 (plateforme unifiee).",
+  "objective": "Plateforme unifiée 'idée -> projet documenté, outillé et démarré' qui fusionne trois briques existantes : LoopForge (boucle agentique LangGraph ask/research/draft/critique/refine produisant PRD+SPEC), Prompt Perfect Mode B (pipeline web React : brainstorm chat, recommandations depuis le catalogue awesome-claude-code, livrables CLAUDE.md/PRD/architecture, scaffold PowerShell, guide) et Mode C (classification de complexité et routage vers le modèle optimal haiku/sonnet/opus). Vision : un compilateur idée->code où les documents sont la représentation intermédiaire et Claude Code headless le backend d'exécution.",
+  "context": "Existant : LoopForge v1 validée (Python 3.14, LangGraph, ChromaDB, routage statique 3 modèles Opus/Sonnet/Haiku, coût tracké, 0,30-1,00 $/run). Prompt Perfect tourne dans plateforme-studio (React via Babel CDN, proxy serveur Anthropic, localStorage). Six leviers de performance décidés : (1) critique par consommation - un implémenteur simulé lit le SPEC et liste les ambiguïtés bloquantes, en plus du juge rubrique ; (2) budget de questions dépensé pendant la boucle critique/refine là où le gain d'information est maximal, 1-2 questions seulement en amont ; (3) volant d'apprentissage - findings de critique journalisés par catégorie, promus dans les system prompts du draft après 3 récurrences ; (4) routage en cascade par appel (cheap d'abord, vérif Haiku, escalade sur échec) + cache de research ; (5) drafts PRD/SPEC/CLAUDE.md en sous-graphes parallèles + noeud de fusion-cohérence ; (6) harnais d'évaluation en premier - jeu doré de projets, score rubrique + succès aval, régression sur tout changement de prompt. Plus : index sémantique ChromaDB du catalogue awesome-claude-code et des skills locaux, section 'Skills recommandés' obligatoire dans le SPEC, scaffold qui les installe, étape finale optionnelle 'forge' (claude -p headless jusqu'à tests verts). Règle d'architecture absolue : une fonctionnalité = un hook ou un noeud LangGraph, jamais de modification des noeuds existants. Utilisateur unique : développeur solo Windows 11.",
+  "max_iterations": 2,
+  "quality_threshold": 8.0,
+  "answers": [
+    {
+      "keywords": ["utilisateur", "cible", "qui", "équipe", "collabor"],
+      "answer": "Utilisateur unique : développeur solo sous Windows 11. Pas de multi-utilisateurs en v2."
+    },
+    {
+      "keywords": ["budget", "coût", "cout", "prix", "dépense"],
+      "answer": "Budget cible : moins de 1 $ par run complet en médiane grâce au routage en cascade, plafond dur 3 $ par run avec arrêt propre. Clé API dédiée pay-per-token."
+    },
+    {
+      "keywords": ["priorité", "priorit", "ordre", "phase", "d'abord", "premier"],
+      "answer": "Ordre décidé : harnais d'évaluation d'abord, puis implémenteur simulé, volant d'apprentissage, questions en boucle, routage cascade, parallélisme, skills, UI, forge en dernier et optionnel."
+    },
+    {
+      "keywords": ["succès", "succes", "critère", "criter", "mesur", "kpi", "réussi"],
+      "answer": "Critères de succès : un SPEC est bon si un agent peut l'implémenter sans poser de question (zéro ambiguïté bloquante détectée par l'implémenteur simulé) ; coût médian < 1 $ ; le draft du projet N+1 ne reproduit plus les findings promus ; toute modification de prompt passe la régression sur le jeu doré."
+    },
+    {
+      "keywords": ["interface", "ui", "web", "frontend", "vocal"],
+      "answer": "FastAPI expose build_graph() avec interrupts via websocket ; l'UI React existante de Prompt Perfect devient le frontend, son chat brainstorm sert d'interface aux interrupts. Le CLI reste disponible."
+    },
+    {
+      "keywords": ["stack", "technolog", "langage", "postgres", "base de données"],
+      "answer": "Stack imposée : Python 3.14 + LangGraph + ChromaDB + FastAPI côté moteur ; React existant côté UI ; SQLite pour le relationnel (jeu doré, findings, RunLog). Pas de nouveau framework."
+    },
+    {
+      "keywords": ["forge", "claude code", "headless", "exécution"],
+      "answer": "L'étape forge (claude -p headless jusqu'à tests verts) est optionnelle, désactivée par défaut, derrière un flag explicite avec plafond de coût dédié. La v2 est complète sans elle."
+    },
+    {
+      "keywords": ["skill", "catalogue", "awesome", "ressource"],
+      "answer": "Sources de skills : catalogue awesome-claude-code + skills locaux de ~/.claude/skills, indexés dans le même ChromaDB que la mémoire. Le SPEC porte une section obligatoire 'Skills recommandés' ; le scaffold les installe."
+    },
+    {
+      "keywords": ["risque", "sécurité", "securit", "authentif"],
+      "answer": "Usage local mono-poste, pas d'authentification en v2. Risque principal : Goodhart sur le juge rubrique - mitigé par l'implémenteur simulé et le harnais d'éval. Clés API en .env uniquement."
+    }
+  ],
+  "default_answer": "Décide en cohérence avec le contexte fourni : simplicité d'abord, chaque fonctionnalité est un hook ou un noeud, le noyau v1 validé ne se modifie pas, le harnais d'évaluation prime."
+}

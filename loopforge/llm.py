@@ -52,6 +52,10 @@ def track_usage(updates: dict, role: str, response) -> None:
     )
     updates.setdefault("usage", []).append(entry)
 
+    # Télémétrie RunLog (Phase 0) - no-op si LOOPFORGE_RUNLOG_DB absent
+    from .runlog import log_usage
+    log_usage(updates.get("phase", ""), entry)
+
 
 def total_cost(state) -> float:
     return round(sum(u["cost_usd"] for u in state.get("usage", [])), 4)
