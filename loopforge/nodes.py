@@ -9,7 +9,8 @@ from langgraph.types import interrupt
 
 from .extensions import run_hooks
 from .llm import get_llm, total_cost, track_usage
-from .prompts import CLARIFIER, CRITIC, DRAFTER, REFINER, RESEARCHER
+from .prompts import (CLARIFIER, CRITIC, DRAFTER, IMPLEMENTER_CRITIC,
+                       REFINER, RESEARCHER)
 from .templates import DOCUMENTS
 
 MAX_QUESTIONS = 5  # plafond dur de la boucle de clarification
@@ -103,7 +104,9 @@ def research_node(state):
 
 def draft_node(state):
     updates = {"phase": "rédaction", "documents": {}}
-    llm = get_llm("worker", max_tokens=6000)
+    # 10000 : un SPEC complexe raffiné dépasse 6000 tokens -> troncature en fin
+    # de document (constaté sur le cas doré plateforme-v2)
+    llm = get_llm("worker", max_tokens=10000)
     base = (
         f"{_transcript(state)}\n\nNOTE DE CADRAGE :\n{state['research_findings']}"
     )
@@ -145,20 +148,60 @@ def critique_node(state):
     return updates
 
 
+# ------------------------------------------------ critique par consommation
+
+def implementer_critique_node(state):
+    """Lit les documents comme un implémenteur sans accès à l'auteur - relève
+    les ambiguïtés bloquantes que le critique rubrique (trop clément) rate."""
+    updates = {"phase": "critique_implementation"}
+    llm = get_llm("architect", max_tokens=1500)
+    docs = "\n\n".join(f"=== {k} ===\n{v}" for k, v in state["documents"].items())
+    response = llm.invoke([
+        SystemMessage(content=IMPLEMENTER_CRITIC),
+        HumanMessage(content=docs),
+    ])
+    track_usage(updates, "architect", response)
+    try:
+        data = _parse_json(_text(response))
+    except (ValueError, json.JSONDecodeError):
+        data = {"ambiguites": []}
+    issues = data.get("ambiguites", [])
+    updates["implementer_issues"] = issues
+
+    # Garder-le-meilleur : composite = score rubrique - 2 par ambiguïté bloquante.
+    # Le refine peut dégrader (sur-raffinement, sortie cassée) ; on ne garde jamais
+    # une passe pire que la meilleure vue. Égalité -> on garde la première (>).
+    composite = state["critiques"][-1]["score"] - 2.0 * len(issues)
+    if composite > state.get("best_composite", float("-inf")):
+        updates["best_composite"] = composite
+        updates["best_documents"] = dict(state["documents"])
+    return updates
+
+
 # --------------------------------------------------------------- raffinement
 
 def refine_node(state):
     updates = {"phase": "raffinement", "documents": dict(state["documents"])}
     issues = state["critiques"][-1]["issues"]
     issues_text = "\n".join(f"- {i}" for i in issues)
-    llm = get_llm("worker", max_tokens=6000)
+    implementer_issues = state.get("implementer_issues", [])
+    if implementer_issues:
+        issues_text += "\n" + "\n".join(
+            f"- {i['localisation']} : {i['probleme']} -> {i['question']}"
+            for i in implementer_issues
+        )
+    llm = get_llm("worker", max_tokens=10000)
     for name, doc in state["documents"].items():
         response = llm.invoke([
             SystemMessage(content=REFINER),
             HumanMessage(content=f"DOCUMENT ({name}) :\n{doc}\n\nPROBLÈMES RELEVÉS :\n{issues_text}"),
         ])
         track_usage(updates, "worker", response)
-        updates["documents"][name] = _text(response)
+        refined = _text(response)
+        # Garde : une correction ciblée ne réduit pas un document de moitié.
+        # Sortie vide/tronquée (erreur transitoire, max_tokens) -> on garde l'ancien.
+        if len(refined) >= 0.5 * len(doc):
+            updates["documents"][name] = refined
     updates["iteration"] = state.get("iteration", 0) + 1
     return updates
 
@@ -171,7 +214,11 @@ def output_node(state):
 
     out_dir = Path(state.get("output_dir", "output"))
     out_dir.mkdir(parents=True, exist_ok=True)
-    for name, doc in state["documents"].items():
+    # On promeut la meilleure version vue (garder-le-meilleur) en documents
+    # finaux, pour que fichiers écrits ET état retourné soient cohérents.
+    documents = state.get("best_documents") or state["documents"]
+    updates["documents"] = documents
+    for name, doc in documents.items():
         (out_dir / f"{name}.md").write_text(doc, encoding="utf-8")
 
     # Mémorisation du projet pour les runs futurs (RAG)

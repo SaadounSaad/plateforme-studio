@@ -45,7 +45,8 @@ START -> ask <-> answer (interrupt humain, 1 question à la fois)
            |
          draft (PRD + SPEC depuis templates stricts)
            |
-        critique <-> refine (boucle jusqu'à score >= seuil ou max_iterations)
+        critique -> implementer_critique <-> refine (boucle jusqu'à score >= seuil
+                    ET zéro ambiguïté bloquante, ou max_iterations)
            |
          output (fichiers + mémorisation vectorielle + bilan de coût)
 ```

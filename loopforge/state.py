@@ -28,6 +28,12 @@ class Usage(TypedDict):
     cost_usd: float
 
 
+class ImplementerIssue(TypedDict):
+    localisation: str
+    probleme: str
+    question: str
+
+
 class LoopForgeState(TypedDict, total=False):
     # --- Entrée utilisateur ---
     objective: str                     # obligatoire
@@ -50,6 +56,12 @@ class LoopForgeState(TypedDict, total=False):
     iteration: int                     # nb de passes de raffinement effectuées
     max_iterations: int                # plafond (défaut : 2)
     quality_threshold: float           # score d'acceptation (défaut : 8.0)
+    implementer_issues: list[ImplementerIssue]  # dernière passe uniquement (pas d'accumulation)
+    max_implementer_iterations: int    # plafond boucle implémenteur (défaut : 3)
+
+    # Garder-le-meilleur : le refine peut dégrader, on écrit la meilleure passe
+    best_documents: dict[str, str]     # snapshot de la meilleure version vue
+    best_composite: float              # score composite de best_documents
 
     # --- Sortie / télémétrie ---
     phase: str

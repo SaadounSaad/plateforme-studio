@@ -1,0 +1,30 @@
+{
+  "timestamp": "20260712-193148",
+  "prompt_hash": "300621cd",
+  "cases": {
+    "dashboard-conso": {
+      "fidelite": 9.0,
+      "coherence": 9.0,
+      "actionnabilite": 9.0,
+      "concision": 8.0,
+      "eval_global": 8.75,
+      "commentaire_juge": "Couverture complète des exigences avec traitement honnête de l'ambiguïté du canal d'alerte (question posée deux fois, jamais répondue sur le canal) marquée comme hypothèse à valider. SPEC très actionnable et cohérente avec le PRD ; quelques passages explicatifs légèrement redondants entre sections 4 et 6.",
+      "n_ambiguites_bloquantes": 1,
+      "ambiguites": [
+        {
+          "localisation": "PRD §7 / SPEC §1",
+          "probleme": "Le canal d'alerte (dashboard seul) est explicitement non confirmé par le commanditaire et bloque le verrouillage du périmètre v1.",
+          "question": "L'affichage dashboard seul suffit-il, ou faut-il prévoir email/notification en v1 ?"
+        }
+      ],
+      "score_interne": 8.0,
+      "iterations_refine": 3,
+      "questions_posees": 2,
+      "cout_run_usd": 0.8937,
+      "duree_s": 398.1
+    }
+  },
+  "cout_runs_usd": 0.8937,
+  "cout_eval_usd": 0.0654,
+  "cout_total_usd": 0.9591
+}

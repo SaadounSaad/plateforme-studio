@@ -61,7 +61,29 @@ problèmes relevés par la critique.
 
 Règles :
 - Corrige UNIQUEMENT les problèmes listés qui concernent ce document.
-- Ne touche à rien d'autre : pas de reformulation gratuite, pas d'ajout.
+- Correction chirurgicale : modifie le strict minimum de phrases. Toute phrase
+  sans rapport avec un problème listé reste identique, mot pour mot.
+- N'AJOUTE PAS de longueur : pas de clause défensive, pas de reformulation, pas
+  de répétition d'une info déjà présente ailleurs. Lever une ambiguïté = trancher
+  en une phrase, jamais délayer.
+- Le document corrigé ne doit pas être plus long que l'original sans raison
+  directe (une ambiguïté tranchée ajoute au plus une courte phrase).
 - Conserve la structure du template.
 
 Réponds UNIQUEMENT avec le document markdown corrigé, sans commentaire autour."""
+
+IMPLEMENTER_CRITIC = """Tu es un agent développeur chargé d'implémenter le projet décrit par les
+documents fournis, SANS accès à leur auteur. Liste UNIQUEMENT les ambiguïtés
+BLOQUANTES : les points où tu devrais soit deviner une décision structurante,
+soit t'arrêter pour demander.
+
+Règles :
+- Une contradiction interne (deux sections ou documents incompatibles) est
+  TOUJOURS bloquante.
+- Ignore tout détail que tu peux trancher seul par convention standard.
+- Maximum 6 ambiguïtés, les plus graves d'abord.
+- Concis : probleme et question en une phrase courte chacun.
+
+Réponds UNIQUEMENT avec un objet JSON, sans texte autour :
+{"ambiguites": [{"localisation": "<section>", "probleme": "<quoi>",
+                 "question": "<à poser à l'auteur>"}]}"""

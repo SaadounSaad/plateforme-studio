@@ -10,9 +10,11 @@ r"""Assemblage du graphe LangGraph.
         v
      [draft]
         v
-    [critique] <---.
-      /     \      |
- (accept    '--> [refine]
+    [critique]
+        v
+    [implementer_critique] <---.
+      /     \                  |
+ (accept    '----------> [refine]
   ou max)
       v
    [output]
@@ -24,7 +26,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from .nodes import (answer_node, ask_node, critique_node, draft_node,
-                    output_node, refine_node, research_node)
+                    implementer_critique_node, output_node, refine_node,
+                    research_node)
 from .state import LoopForgeState
 
 
@@ -34,8 +37,10 @@ def _after_ask(state) -> str:
 
 def _after_critique(state) -> str:
     last = state["critiques"][-1]
-    max_iter = state.get("max_iterations", 2)
-    if last["verdict"] == "accept" or state.get("iteration", 0) >= max_iter:
+    rubric_ok = last["verdict"] == "accept"
+    implementer_ok = len(state.get("implementer_issues", [])) == 0
+    max_iter = max(state.get("max_iterations", 2), state.get("max_implementer_iterations", 3))
+    if (rubric_ok and implementer_ok) or state.get("iteration", 0) >= max_iter:
         return "output"
     return "refine"
 
@@ -50,6 +55,7 @@ def build_graph(checkpointer=None):
     builder.add_node("research", research_node)
     builder.add_node("draft", draft_node)
     builder.add_node("critique", critique_node)
+    builder.add_node("implementer_critique", implementer_critique_node)
     builder.add_node("refine", refine_node)
     builder.add_node("output", output_node)
 
@@ -58,7 +64,8 @@ def build_graph(checkpointer=None):
     builder.add_edge("answer", "ask")
     builder.add_edge("research", "draft")
     builder.add_edge("draft", "critique")
-    builder.add_conditional_edges("critique", _after_critique, ["refine", "output"])
+    builder.add_edge("critique", "implementer_critique")
+    builder.add_conditional_edges("implementer_critique", _after_critique, ["refine", "output"])
     builder.add_edge("refine", "critique")
     builder.add_edge("output", END)
 

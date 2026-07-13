@@ -1,0 +1,76 @@
+{
+  "timestamp": "20260712-184917",
+  "prompt_hash": "ec49bd75",
+  "cases": {
+    "dashboard-conso": {
+      "fidelite": 8.0,
+      "coherence": 8.0,
+      "actionnabilite": 8.0,
+      "concision": 5.0,
+      "eval_global": 7.25,
+      "commentaire_juge": "Toutes les exigences exprimées sont couvertes et les périmètres/unités (USD, UTC, jour/mois) restent cohérents entre PRD et SPEC, y compris la règle d'alerte et sa réinitialisation. La SPEC est directement exploitable mais souffre de passages très redondants et de longues clauses défensives qui gonflent le texte sans valeur ajoutée.",
+      "n_ambiguites_bloquantes": 1,
+      "ambiguites": [
+        {
+          "localisation": "PRD §7 / SPEC §1 (canal alertes)",
+          "probleme": "Le canal d'alerte (dashboard) est retenu par défaut mais explicitement non validé et devant être confirmé avant développement.",
+          "question": "Confirmez-vous l'affichage dashboard comme unique canal d'alerte en v1, ou faut-il attendre validation avant d'implémenter ?"
+        }
+      ],
+      "score_interne": 6.0,
+      "iterations_refine": 5,
+      "questions_posees": 1,
+      "cout_run_usd": 1.4161,
+      "duree_s": 593.2
+    },
+    "plateforme-v2": {
+      "fidelite": 5.0,
+      "coherence": 4.0,
+      "actionnabilite": 1.0,
+      "concision": 5.0,
+      "eval_global": 3.75,
+      "commentaire_juge": "Le PRD couvre l'essentiel des leviers mais confond parfois vision (compilateur idée->code) et cadrage minimal, et omet le nom des modèles pourtant fournis dans le contexte. La SPEC est absente/non produite, rendant tout démarrage développeur impossible et créant une incohérence majeure avec le PRD.",
+      "n_ambiguites_bloquantes": 6,
+      "ambiguites": [
+        {
+          "localisation": "SPEC (document entier)",
+          "probleme": "La SPEC est absente : aucun contenu technique fourni, seul un message d'erreur figure entre les marqueurs.",
+          "question": "Pouvez-vous fournir la SPEC réelle, car le PRD seul ne suffit pas à l'implémentation ?"
+        },
+        {
+          "localisation": "PRD §3 / §8",
+          "probleme": "Les 3 modèles et les règles de routage mesurables ne sont pas définis.",
+          "question": "Quels sont les 3 modèles précis et selon quels critères mesurables router génération/critique/révision ?"
+        },
+        {
+          "localisation": "PRD §3 / §8",
+          "probleme": "Comportement en cas de dépassement du budget < 1 $/run non tranché.",
+          "question": "En cas de dépassement du budget, faut-il interrompre, dégrader vers un modèle moins cher, ou seulement alerter ?"
+        },
+        {
+          "localisation": "PRD §4 / §8",
+          "probleme": "Moteur d'orchestration et format de déclaration des hooks/nœuds non spécifiés.",
+          "question": "Faut-il utiliser LangGraph, une solution custom ou autre, et comment déclare-t-on un hook/nœud ?"
+        },
+        {
+          "localisation": "PRD §3/§6 / §8",
+          "probleme": "Sémantique d'une interruption WebSocket ambiguë (pause reprenable vs annulation vs réorientation).",
+          "question": "Une interruption doit-elle mettre en pause avec reprise, annuler le run, ou injecter de nouvelles instructions ?"
+        },
+        {
+          "localisation": "PRD §5/§6 / §8",
+          "probleme": "Structure des findings, clé de déduplication et composition du golden set non définies.",
+          "question": "Comment sont identifiés/stockés les findings promus (clé de dédup) et que contient le jeu de tests doré ?"
+        }
+      ],
+      "score_interne": 2.0,
+      "iterations_refine": 5,
+      "questions_posees": 2,
+      "cout_run_usd": 1.4393,
+      "duree_s": 678.6
+    }
+  },
+  "cout_runs_usd": 2.8554,
+  "cout_eval_usd": 0.1248,
+  "cout_total_usd": 2.9802
+}
