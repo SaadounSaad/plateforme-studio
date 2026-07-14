@@ -1,0 +1,10 @@
+.env
+.loopforge_memory/
+__pycache__/
+output/
+eval/runs/
+eval/runlog.sqlite
+
+# Skills installés localement (non versionnés)
+plateforme-studio/
+api.log

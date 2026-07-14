@@ -1,0 +1,35 @@
+{
+  "id": "dashboard-conso",
+  "description": "Cas dore n1 - premier run reel LoopForge (2026-07-12). Dashboard personnel de consommation IA.",
+  "objective": "Tableau de bord personnel de consommation IA : vue unifiée des coûts Anthropic et Kimi avec alertes de dépassement de seuil.",
+  "context": "Usage individuel. Aujourd'hui la consommation se consulte séparément sur chaque console, manuellement. Besoin : coûts cumulés par plateforme + total global, alertes configurables, mise à jour au moins quotidienne. Import CSV manuel accepté si aucune API d'usage n'est disponible.",
+  "max_iterations": 2,
+  "quality_threshold": 8.0,
+  "answers": [
+    {
+      "keywords": ["utilisateur", "cible", "qui", "équipe"],
+      "answer": "Utilisateur unique : moi-même, usage personnel. Pas de multi-comptes ni de gestion de droits."
+    },
+    {
+      "keywords": ["succès", "succes", "critère", "criter", "mesur", "kpi"],
+      "answer": "Coûts cumulés des 2 plateformes visibles sur un seul écran ; alerte au plus tard au cycle de synchronisation suivant un dépassement (cible sous 24h) ; mise à jour au moins quotidienne ; zéro consultation manuelle des consoles natives une fois en place."
+    },
+    {
+      "keywords": ["stack", "technolog", "langage", "framework", "base de données"],
+      "answer": "Python FastAPI + SQLite + React/Chart.js. Scheduler APScheduler. Notifications par email SMTP. Authentification locale par mot de passe unique."
+    },
+    {
+      "keywords": ["api", "import", "csv", "source", "données", "collecte"],
+      "answer": "Import CSV manuel comme méthode principale v1 - l'existence d'une API d'usage exposant les coûts n'est pas confirmée pour Anthropic ni Kimi. API officielle en complément si elle s'avère disponible (hypothèse à valider)."
+    },
+    {
+      "keywords": ["seuil", "alerte", "budget", "dépassement"],
+      "answer": "Seuils configurables par plateforme et global, période jour ou mois. Une seule alerte par dépassement et par période."
+    },
+    {
+      "keywords": ["délai", "delai", "échéance", "quand", "planning"],
+      "answer": "Pas d'échéance externe, projet personnel."
+    }
+  ],
+  "default_answer": "Décide de façon raisonnable et minimale pour un usage individuel ; marque explicitement 'hypothèse à valider' tout ce qui n'est pas confirmé."
+}

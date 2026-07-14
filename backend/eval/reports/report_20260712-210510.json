@@ -1,0 +1,55 @@
+{
+  "timestamp": "20260712-210510",
+  "prompt_hash": "300621cd",
+  "cases": {
+    "plateforme-v2": {
+      "fidelite": 9.0,
+      "coherence": 8.0,
+      "actionnabilite": 8.0,
+      "concision": 7.0,
+      "eval_global": 8.0,
+      "commentaire_juge": "Couverture exhaustive des six leviers et de toutes les exigences exprimées, sans invention notable. Une légère incohérence terminologique v1/v2 subsiste (l'exclusion multi-utilisateurs et le forge sont parfois rattachés à 'v2' alors que le périmètre décrit est la v1), et la SPEC est tronquée en fin de section 6 ce qui pénalise l'actionnabilité et la concision.",
+      "n_ambiguites_bloquantes": 6,
+      "ambiguites": [
+        {
+          "localisation": "PRD §4 Exclus vs §6 P0 / SPEC §5.3",
+          "probleme": "Le PRD interdit toute modification de nœud existant mais le SPEC étape 3 dit 'le routage cascade remplace le routage statique'.",
+          "question": "Le routage cascade doit-il remplacer le routage existant (modification) ou s'ajouter comme hook sans toucher au nœud existant ?"
+        },
+        {
+          "localisation": "PRD §4 Inclus (contradiction interne)",
+          "probleme": "La ligne forge dit à la fois 'activée par défaut' et 'reste un flag optionnel', ce qui est contradictoire.",
+          "question": "L'étape forge est-elle activée par défaut ou désactivée par défaut ?"
+        },
+        {
+          "localisation": "SPEC §2 / §3",
+          "probleme": "Le journal des findings est décrit comme 'SQLite ou JSON' sans choix tranché, ce qui conditionne le modèle de données et les relations.",
+          "question": "Le stockage des findings/entités doit-il être SQLite ou JSON, et est-ce le même store pour toutes les entités du modèle ?"
+        },
+        {
+          "localisation": "SPEC §6 (tronqué)",
+          "probleme": "La section 'Cas...' (limites/erreurs) est coupée et absente, laissant la gestion d'erreurs non spécifiée.",
+          "question": "Pouvez-vous fournir la fin de la section 6 (cas limites, gestion d'erreurs, comportement en cas d'échec de cascade/scaffold) ?"
+        },
+        {
+          "localisation": "SPEC §2 (Python 3.14)",
+          "probleme": "Python 3.14 est requis mais LangGraph/ChromaDB peuvent ne pas être compatibles à ce moment.",
+          "question": "Python 3.14 est-il un impératif ferme, ou une version stable (3.11/3.12) est-elle acceptable si les libs ne supportent pas 3.14 ?"
+        },
+        {
+          "localisation": "SPEC §4 (source du catalogue skills)",
+          "probleme": "L'indexation du catalogue awesome-claude-code n'a pas de source/format d'ingestion spécifié.",
+          "question": "Où et sous quel format le catalogue awesome-claude-code est-il fourni (repo cloné, fichier, API) pour l'indexation ChromaDB ?"
+        }
+      ],
+      "score_interne": 5.0,
+      "iterations_refine": 3,
+      "questions_posees": 4,
+      "cout_run_usd": 1.2205,
+      "duree_s": 578.5
+    }
+  },
+  "cout_runs_usd": 1.2205,
+  "cout_eval_usd": 0.0842,
+  "cout_total_usd": 1.3047
+}

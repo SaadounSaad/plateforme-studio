@@ -1,0 +1,45 @@
+{
+  "timestamp": "20260712-191912",
+  "prompt_hash": "ec49bd75",
+  "cases": {
+    "dashboard-conso": {
+      "fidelite": 8.0,
+      "coherence": 7.0,
+      "actionnabilite": 8.0,
+      "concision": 5.0,
+      "eval_global": 7.0,
+      "commentaire_juge": "Toutes les exigences (cumuls par plateforme + global, seuils configurables jour/mois, alerte unique par période, MAJ quotidienne, CSV en repli) sont couvertes et cohérentes entre PRD et SPEC. Mais le préambule parasite du PRD, les longs paragraphes justificatifs et la SPEC tronquée en plein plan d'implémentation nuisent à la concision et à l'actionnabilité.",
+      "n_ambiguites_bloquantes": 4,
+      "ambiguites": [
+        {
+          "localisation": "SPEC section 3 (Agrégation devises) / Format CSV",
+          "probleme": "Hypothèse non confirmée que Kimi facture en USD alors qu'il pourrait facturer en CNY, bloquant l'agrégation du total global.",
+          "question": "Dans quelle devise Kimi et Anthropic exportent-ils leurs coûts, et faut-il gérer une conversion en v1 ?"
+        },
+        {
+          "localisation": "SPEC section 5 (troncature)",
+          "probleme": "Le plan d'implémentation est coupé après l'étape 1, les étapes suivantes sont absentes.",
+          "question": "Pouvez-vous fournir la suite complète du plan d'implémentation ?"
+        },
+        {
+          "localisation": "SPEC section 3 (Rétention) vs PRD section 4",
+          "probleme": "Purge des données hors période courante, mais seuils jour ET mois coexistent avec des fenêtres de rétention différentes.",
+          "question": "Si un seuil mensuel et un seuil journalier coexistent, la rétention doit-elle couvrir le mois entier (fenêtre la plus longue) ?"
+        },
+        {
+          "localisation": "SPEC section 1 (collecte API) / PRD section 4",
+          "probleme": "L'existence réelle d'une API d'usage Anthropic/Kimi est une hypothèse non validée, ce qui détermine si les collecteurs API doivent être développés en v1.",
+          "question": "Une API d'usage exploitable existe-t-elle pour Anthropic et Kimi, ou doit-on livrer uniquement le repli CSV en v1 ?"
+        }
+      ],
+      "score_interne": 4.0,
+      "iterations_refine": 3,
+      "questions_posees": 2,
+      "cout_run_usd": 0.8884,
+      "duree_s": 421.5
+    }
+  },
+  "cout_runs_usd": 0.8884,
+  "cout_eval_usd": 0.0705,
+  "cout_total_usd": 0.9589
+}
