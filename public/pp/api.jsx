@@ -460,12 +460,25 @@ Tier cible : ${tier}` }],
 }
 
 // ── Mode Forge: LoopForge API wrappers ───────────────────
-const LF_API = 'http://localhost:8123';
+// En localhost, cible l'instance locale (dev sans redéployer) ; sinon
+// l'instance Railway. La clé n'est pas un vrai secret côté navigateur
+// (visible via "Afficher le code source") — elle filtre le scan
+// automatique aléatoire d'une URL Railway obscure, pas un attaquant ciblé.
+const LF_API = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  ? 'http://localhost:8123'
+  : 'https://loopforge-said.fly.dev';
+const LF_API_KEY = '1F2U07uwNGgLA_w8M_HYbSFGLkZsJNruDQXAGk9IaYM';
+
+function lfHeaders(json) {
+  const h = { 'X-Api-Key': LF_API_KEY };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
 
 async function apiForgeCreateRun(objective, context = '', max_iterations = 2, quality_threshold = 8.0) {
   const r = await fetch(`${LF_API}/runs`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: lfHeaders(true),
     body: JSON.stringify({ objective, context, max_iterations, quality_threshold })
   });
   if (!r.ok) throw new Error('Erreur création run: ' + r.status);
@@ -473,7 +486,7 @@ async function apiForgeCreateRun(objective, context = '', max_iterations = 2, qu
 }
 
 async function apiForgeGetStatus(runId) {
-  const r = await fetch(`${LF_API}/runs/${runId}`);
+  const r = await fetch(`${LF_API}/runs/${runId}`, { headers: lfHeaders() });
   if (!r.ok) throw new Error('Erreur statut: ' + r.status);
   return r.json();
 }
@@ -481,7 +494,7 @@ async function apiForgeGetStatus(runId) {
 async function apiForgeAnswer(runId, answer) {
   const r = await fetch(`${LF_API}/runs/${runId}/answer`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: lfHeaders(true),
     body: JSON.stringify({ answer })
   });
   if (!r.ok) throw new Error('Erreur réponse: ' + r.status);
@@ -489,7 +502,7 @@ async function apiForgeAnswer(runId, answer) {
 }
 
 async function apiForgeGetDocuments(runId) {
-  const r = await fetch(`${LF_API}/runs/${runId}/documents`);
+  const r = await fetch(`${LF_API}/runs/${runId}/documents`, { headers: lfHeaders() });
   if (!r.ok) throw new Error('Erreur documents: ' + r.status);
   return r.json();
 }
