@@ -149,6 +149,7 @@ class RunEntry:
                     status="waiting_answer",
                     phase="clarification",
                     question=interrupt["question"],
+                    options=interrupt.get("options"),
                 )
                 return  # Attendre la réponse via POST /answer
 
@@ -205,6 +206,7 @@ class RunEntry:
                     status="waiting_answer",
                     phase="clarification",
                     question=interrupt["question"],
+                    options=interrupt.get("options"),
                 )
                 return
 

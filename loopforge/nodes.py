@@ -60,12 +60,17 @@ def ask_node(state):
         updates["clarification_done"] = True
     else:
         updates["pending_question"] = data["question"]
+        options = data.get("options")
+        updates["pending_options"] = options if isinstance(options, list) and options else None
     return updates
 
 
 def answer_node(state):
     """Interrompt le graphe et attend la réponse humaine (une seule question)."""
-    answer = interrupt({"question": state["pending_question"]})
+    answer = interrupt({
+        "question": state["pending_question"],
+        "options": state.get("pending_options"),
+    })
     return {
         "clarifications": [
             {"question": state["pending_question"], "answer": str(answer).strip()}

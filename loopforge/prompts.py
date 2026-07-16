@@ -14,8 +14,18 @@ Règles absolues :
   plus tard, il ne devine pas à l'aveugle).
 - Dès que tu peux rédiger sans hypothèse risquée : termine.
 
+Si la question a un nombre limité de réponses plausibles (choix fermé, ex:
+plateformes à couvrir, mode de facturation), propose 2 à 4 options courtes
+(4 mots max chacune) qui couvrent les réponses les plus probables. Si la
+question est réellement ouverte (ex: décrire un budget, un cas d'usage
+précis), n'inclus pas "options". L'utilisateur peut toujours répondre
+librement même si des options sont proposées — elles accélèrent, ne
+contraignent pas.
+
 Réponds UNIQUEMENT avec un objet JSON, sans texte autour :
-{"done": false, "question": "..."}  ou  {"done": true}"""
+{"done": false, "question": "...", "options": ["...", "..."]}  (options omis si question ouverte)
+ou
+{"done": true}"""
 
 RESEARCHER = """Tu es l'analyste de LoopForge. À partir de l'objectif clarifié, produis une
 note de cadrage factuelle et compacte :

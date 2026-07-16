@@ -41,6 +41,7 @@ class LoopForgeState(TypedDict, total=False):
 
     # --- Phase clarification (une question à la fois) ---
     pending_question: str
+    pending_options: list[str] | None  # choix courts proposés, ou None si question ouverte
     clarifications: Annotated[list[Clarification], add]
     clarification_done: bool
 
