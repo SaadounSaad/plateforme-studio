@@ -20,6 +20,7 @@ async function claudeCall({ system, messages, max_tokens = 2000 }) {
   });
   const data = await resp.json();
   if (data.error) throw new Error(data.error.message);
+  if (data.stop_reason === 'max_tokens') throw new Error('Réponse tronquée (max_tokens atteint) — augmente la limite pour cet appel');
   return data.content.filter(b => b.type === 'text').map(b => b.text).join('');
 }
 
@@ -187,7 +188,7 @@ Réponds UNIQUEMENT avec le contenu markdown du CLAUDE.md. Pas de preamble, pas 
   return claudeCall({
     system: 'You are an expert Claude Code architect. You create CLAUDE.md files that maximize Claude\'s effectiveness using prompt engineering best practices: role prompting, XML structure, chain-of-thought guidance, and multishot examples. Output only the CLAUDE.md content, no preamble.',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 2000
+    max_tokens: 4000
   });
 }
 
@@ -269,7 +270,7 @@ Réponds uniquement avec le contenu markdown. Adapte chaque section au stack ${s
 
   return claudeCall({
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 1800
+    max_tokens: 3000
   });
 }
 
@@ -330,6 +331,7 @@ async function claudeCallWith(model, { system, messages, max_tokens = 1500 }) {
   });
   const data = await resp.json();
   if (data.error) throw new Error(data.error.message);
+  if (data.stop_reason === 'max_tokens') throw new Error('Réponse tronquée (max_tokens atteint) — augmente la limite pour cet appel');
   return data.content.filter(b => b.type === 'text').map(b => b.text).join('');
 }
 
