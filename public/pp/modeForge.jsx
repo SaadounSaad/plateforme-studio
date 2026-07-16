@@ -49,12 +49,16 @@ function ForgeStepper({ phase }) {
 }
 
 // ── Chat de clarification ───────────────────────────────────
-function ForgeChatStep({ question, onAnswer, loading }) {
+function ForgeChatStep({ question, options, onAnswer, loading }) {
   const [input, setInput] = React.useState('');
+  const [showOther, setShowOther] = React.useState(false);
   const scrollRef = React.useRef(null);
+  const hasOptions = Array.isArray(options) && options.length > 0;
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    setShowOther(false);
+    setInput('');
   }, [question]);
 
   const handleSend = () => {
@@ -67,6 +71,8 @@ function ForgeChatStep({ question, onAnswer, loading }) {
     if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  const showFreeText = !hasOptions || showOther;
+
   return (
     <div className="chat-wrap">
       <div ref={scrollRef} className="panelbody scroll" style={{ flex: 1 }}>
@@ -75,17 +81,35 @@ function ForgeChatStep({ question, onAnswer, loading }) {
             <div className="who">LoopForge</div>
             {question ? renderMarkdown(question) : <div className="spin-sm" />}
           </div>
+          {hasOptions && (
+            <div className="stack" style={{ gap: 6, marginTop: 4 }}>
+              {options.map((opt, i) => (
+                <button key={i} className="btn btn-soft" style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                  onClick={() => onAnswer(opt)} disabled={loading}>
+                  {opt}
+                </button>
+              ))}
+              {!showOther && (
+                <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }}
+                  onClick={() => setShowOther(true)} disabled={loading}>
+                  Autre…
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
-      <div className="chat-footer">
-        <div className="chatinput">
-          <Textarea value={input} onChange={setInput} onKeyDown={handleKey} rows={2}
-            placeholder="Ta réponse… (Shift+Entrée pour envoyer)" />
-          <button className="btn btn-ghost btn-icon" onClick={handleSend} disabled={!input.trim() || loading}>
-            <Icon name="send" size={16} />
-          </button>
+      {showFreeText && (
+        <div className="chat-footer">
+          <div className="chatinput">
+            <Textarea value={input} onChange={setInput} onKeyDown={handleKey} rows={2}
+              placeholder="Ta réponse… (Shift+Entrée pour envoyer)" />
+            <button className="btn btn-ghost btn-icon" onClick={handleSend} disabled={!input.trim() || loading}>
+              <Icon name="send" size={16} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -271,6 +295,7 @@ function ModeForge({ toast, search = '' }) {
   const [phase, setPhase] = React.useState('');
   const [status, setStatus] = React.useState('idle'); // idle | running | waiting_answer | done | error
   const [question, setQuestion] = React.useState('');
+  const [options, setOptions] = React.useState(null);
   const [documents, setDocuments] = React.useState(null);
   const [cost, setCost] = React.useState(0);
   const [iteration, setIteration] = React.useState(0);
@@ -306,6 +331,7 @@ function ModeForge({ toast, search = '' }) {
         if (s.status === 'waiting_answer') {
           setStatus('waiting_answer');
           setQuestion(s.question || '');
+          setOptions(s.options || null);
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         } else if (s.status === 'done') {
@@ -353,6 +379,7 @@ function ModeForge({ toast, search = '' }) {
     setDocuments(null);
     setExtraDocs(null);
     setQuestion('');
+    setOptions(null);
     setCost(0);
     setIteration(0);
 
@@ -376,6 +403,7 @@ function ModeForge({ toast, search = '' }) {
       await apiForgeAnswer(runId, answer);
       setStatus('running');
       setQuestion('');
+      setOptions(null);
       startPolling(runId);
     } catch(e) {
       toast('err', 'Erreur réponse: ' + e.message);
@@ -508,6 +536,7 @@ function ModeForge({ toast, search = '' }) {
     setPhase('');
     setStatus('idle');
     setQuestion('');
+    setOptions(null);
     setDocuments(null);
     setExtraDocs(null);
     setCost(0);
@@ -585,7 +614,7 @@ function ModeForge({ toast, search = '' }) {
             )}
 
             {status === 'waiting_answer' && (
-              <ForgeChatStep question={question} onAnswer={sendAnswer} loading={loading} />
+              <ForgeChatStep question={question} options={options} onAnswer={sendAnswer} loading={loading} />
             )}
 
             {status === 'done' && documents && (
