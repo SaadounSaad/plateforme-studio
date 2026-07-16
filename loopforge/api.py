@@ -10,7 +10,7 @@ import uuid
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -23,7 +23,7 @@ load_dotenv()
 
 app = FastAPI(title="LoopForge API", version="0.1.0")
 
-# CORS — frontend Prompt Perfect sur port 3000 (et tout autre origine en dev)
+# CORS — frontend Prompt Perfect (Vercel + dev local)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,6 +31,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Clé API — protège les endpoints qui déclenchent des appels Anthropic payants.
+# Si LOOPFORGE_API_KEY n'est pas définie, l'API reste ouverte (dev local sans .env).
+_API_KEY = os.environ.get("LOOPFORGE_API_KEY")
+
+
+async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    if _API_KEY and x_api_key != _API_KEY:
+        raise HTTPException(status_code=401, detail="Clé API invalide ou manquante")
 
 
 # ------------------------------------------------------------------ modèles Pydantic
@@ -213,7 +222,7 @@ _RUNS: dict[str, RunEntry] = {}
 
 # ------------------------------------------------------------------ endpoints
 
-@app.post("/runs")
+@app.post("/runs", dependencies=[Depends(require_api_key)])
 async def create_run(req: CreateRunRequest) -> dict:
     """Démarre un nouveau run."""
     run_id = str(uuid.uuid4())[:8]
@@ -236,7 +245,7 @@ async def create_run(req: CreateRunRequest) -> dict:
     return {"run_id": run_id}
 
 
-@app.get("/runs/{run_id}")
+@app.get("/runs/{run_id}", dependencies=[Depends(require_api_key)])
 async def get_run(run_id: str) -> dict:
     """Retourne le statut courant du run."""
     entry = _RUNS.get(run_id)
@@ -255,7 +264,7 @@ async def get_run(run_id: str) -> dict:
     return status
 
 
-@app.post("/runs/{run_id}/answer")
+@app.post("/runs/{run_id}/answer", dependencies=[Depends(require_api_key)])
 async def answer_run(run_id: str, req: AnswerRequest) -> dict:
     """Résout l'interrupt courant avec la réponse humaine."""
     entry = _RUNS.get(run_id)
@@ -272,7 +281,7 @@ async def answer_run(run_id: str, req: AnswerRequest) -> dict:
     return {"status": "running"}
 
 
-@app.get("/runs/{run_id}/documents")
+@app.get("/runs/{run_id}/documents", dependencies=[Depends(require_api_key)])
 async def get_documents(run_id: str) -> dict:
     """Retourne les documents finaux (PRD, SPEC) du run."""
     entry = _RUNS.get(run_id)
@@ -311,4 +320,4 @@ def health() -> dict:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8123)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8123)))
