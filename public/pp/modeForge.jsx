@@ -51,13 +51,11 @@ function ForgeStepper({ phase }) {
 // ── Chat de clarification ───────────────────────────────────
 function ForgeChatStep({ question, options, onAnswer, loading }) {
   const [input, setInput] = React.useState('');
-  const [showOther, setShowOther] = React.useState(false);
   const scrollRef = React.useRef(null);
   const hasOptions = Array.isArray(options) && options.length > 0;
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    setShowOther(false);
     setInput('');
   }, [question]);
 
@@ -71,7 +69,14 @@ function ForgeChatStep({ question, options, onAnswer, loading }) {
     if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
-  const showFreeText = !hasOptions || showOther;
+  // Clic sur une option : pré-remplit le champ (ne l'envoie pas) pour que
+  // l'utilisateur puisse la compléter ou la combiner avant d'envoyer.
+  const pickOption = (opt) => {
+    setInput(prev => {
+      if (!prev.trim()) return opt;
+      return `${prev.trim()}, ${opt}`;
+    });
+  };
 
   return (
     <div className="chat-wrap">
@@ -85,31 +90,23 @@ function ForgeChatStep({ question, options, onAnswer, loading }) {
             <div className="stack" style={{ gap: 6, marginTop: 4 }}>
               {options.map((opt, i) => (
                 <button key={i} className="btn btn-soft" style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => onAnswer(opt)} disabled={loading}>
+                  onClick={() => pickOption(opt)} disabled={loading}>
                   {opt}
                 </button>
               ))}
-              {!showOther && (
-                <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }}
-                  onClick={() => setShowOther(true)} disabled={loading}>
-                  Autre…
-                </button>
-              )}
             </div>
           )}
         </div>
       </div>
-      {showFreeText && (
-        <div className="chat-footer">
-          <div className="chatinput">
-            <Textarea value={input} onChange={setInput} onKeyDown={handleKey} rows={2}
-              placeholder="Ta réponse… (Shift+Entrée pour envoyer)" />
-            <button className="btn btn-ghost btn-icon" onClick={handleSend} disabled={!input.trim() || loading}>
-              <Icon name="send" size={16} />
-            </button>
-          </div>
+      <div className="chat-footer">
+        <div className="chatinput">
+          <Textarea value={input} onChange={setInput} onKeyDown={handleKey} rows={2}
+            placeholder={hasOptions ? "Choisis une option ci-dessus, complète-la ou écris ta réponse… (Shift+Entrée pour envoyer)" : "Ta réponse… (Shift+Entrée pour envoyer)"} />
+          <button className="btn btn-ghost btn-icon" onClick={handleSend} disabled={!input.trim() || loading}>
+            <Icon name="send" size={16} />
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -450,6 +447,26 @@ function ModeForge({ toast, search = '' }) {
         { role: 'user', content: prdSpecExcerpt }
       ];
 
+      // Décisions structurantes extraites de la SPEC (architecture, stack,
+      // modèle de données) et du PRD (critères de succès, exigences chiffrées).
+      // Passées intégralement aux générations aval — sans ça, le guide/CLAUDE.md
+      // réinventent leur propre stack (constaté sur TBconso : guide SQLite
+      // alors que la SPEC dit Postgres, seuil 85% vs 80%).
+      const sliceSection = (md, fromRe, toRe) => {
+        const m = md.search(fromRe);
+        if (m < 0) return '';
+        const rest = md.slice(m);
+        const end = rest.search(toRe);
+        return end > 0 ? rest.slice(0, end) : rest;
+      };
+      const spec = documents.SPEC || '';
+      const prd = documents.PRD || '';
+      const decisions = [
+        sliceSection(spec, /^## *1\./m, /^## *4\./m) || spec.slice(0, 2500),
+        sliceSection(prd, /^## *2\./m, /^## *3\./m),
+        sliceSection(prd, /^## *6\./m, /^## *7\./m),
+      ].filter(Boolean).join('\n\n').slice(0, 4500);
+
       // Recommandations catalogue awesome-claude-code
       const resources = await apiLoadResources();
       const recList = await apiRecommendResources(project, conversation, resources);
@@ -466,7 +483,7 @@ function ModeForge({ toast, search = '' }) {
       // CLAUDE.md (fallback local si l'API échoue, comme Mode B)
       let claudeMd;
       try {
-        claudeMd = await apiGenerateClaudeMd(project, recsWithContent);
+        claudeMd = await apiGenerateClaudeMd(project, recsWithContent, decisions);
       } catch(e) {
         claudeMd = buildClaudeMdFallback(project);
         toast('info', 'CLAUDE.md généré en mode local');
@@ -475,7 +492,7 @@ function ModeForge({ toast, search = '' }) {
       // Documents additionnels (PRD/Architecture/Orchestrateur générés par Mode B)
       let allDocsResult = null;
       try {
-        allDocsResult = await apiGenerateAllDocs(project, claudeMd, conversation);
+        allDocsResult = await apiGenerateAllDocs(project, claudeMd, conversation, decisions);
       } catch(e) {
         toast('info', 'Documents additionnels non disponibles');
       }
@@ -487,7 +504,7 @@ function ModeForge({ toast, search = '' }) {
       const ps1Content = buildPS1(project, claudeMd, slashCmds, allDocsResult);
 
       // Guide de démarrage
-      const guide = await apiGenerateGuide(project, claudeMd, allDocsResult, conversation);
+      const guide = await apiGenerateGuide(project, claudeMd, allDocsResult, conversation, decisions);
 
       setExtraDocs({ claudeMd, ps1Content, guide, recs: recList });
       toast('ok', `Projet complété — ${recList.length} ressources, CLAUDE.md, PS1, guide générés`);

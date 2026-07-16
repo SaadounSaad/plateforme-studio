@@ -146,7 +146,7 @@ ${resList}
 }
 
 // ── Mode B: generate CLAUDE.md ────────────────────────────
-async function apiGenerateClaudeMd(project, recsWithContent) {
+async function apiGenerateClaudeMd(project, recsWithContent, decisions = '') {
   const resourceSummaries = recsWithContent
     .filter(r => r.res && r.content)
     .map(r => `### ${r.res.name} (${r.res.type})\n${r.content.substring(0, 400)}`)
@@ -166,7 +166,13 @@ ${goals ? `Phases/Objectifs: ${goals}` : ''}
 <ressources_intégrées>
 ${resourceSummaries || '(aucune ressource)'}
 </ressources_intégrées>
+${decisions ? `
+<décisions_projet>
+${decisions}
+</décisions_projet>
 
+RÈGLE ABSOLUE : les décisions ci-dessus (stack, base de données, seuils chiffrés, modèle de données) sont déjà actées dans la spec du projet. Reprends-les TELLES QUELLES — ne substitue jamais une techno ou une valeur différente.
+` : ''}
 <instructions>
 Structure le CLAUDE.md avec ces 6 sections XML dans cet ordre exact :
 
@@ -193,7 +199,7 @@ Réponds UNIQUEMENT avec le contenu markdown du CLAUDE.md. Pas de preamble, pas 
 }
 
 // ── Mode B: generate all project docs in one call ─────────
-async function apiGenerateAllDocs(project, claudeMd, conversation) {
+async function apiGenerateAllDocs(project, claudeMd, conversation, decisions = '') {
   const { name='', desc='', stack='', goals='', domains='' } = project;
   const chatSummary = (conversation || []).slice(0, 6)
     .map(m => `${m.role === 'user' ? 'User' : 'Claude'}: ${m.content}`)
@@ -206,7 +212,7 @@ Nom: ${name}
 Description: ${desc}${stack ? `\nStack: ${stack}` : ''}${goals ? `\nObjectifs: ${goals}` : ''}${domains ? `\nDomaines: ${domains}` : ''}
 </projet>
 ${chatSummary ? `\n<brainstorm>\n${chatSummary.slice(0, 1200)}\n</brainstorm>` : ''}
-
+${decisions ? `\n<décisions_projet>\n${decisions}\n</décisions_projet>\n\nRÈGLE ABSOLUE : stack, base de données, seuils chiffrés et modèle de données ci-dessus sont déjà actés — reprends-les tels quels, ne substitue rien.\n` : ''}
 Contraintes :
 - 200-350 mots par document
 - markdown, français
@@ -232,7 +238,7 @@ Contraintes :
 }
 
 // ── Mode B: generate getting-started guide ────────────────
-async function apiGenerateGuide(project, claudeMd, allDocs, conversation) {
+async function apiGenerateGuide(project, claudeMd, allDocs, conversation, decisions = '') {
   const { name='', desc='', stack='', goals='' } = project;
   const chatCtx = (conversation || []).slice(-4)
     .map(m => `${m.role === 'user' ? 'User' : 'Claude'}: ${m.content}`)
@@ -245,7 +251,7 @@ Nom: ${name}
 Description: ${desc}${stack ? `\nStack: ${stack}` : ''}${goals ? `\nObjectifs: ${goals}` : ''}
 </projet>
 ${chatCtx ? `\n<contexte>\n${chatCtx.slice(0, 800)}\n</contexte>` : ''}
-
+${decisions ? `\n<décisions_projet>\n${decisions}\n</décisions_projet>\n\nRÈGLE ABSOLUE : stack, base de données, seuils chiffrés et choix d'architecture ci-dessus sont déjà actés dans la spec — le guide doit les reprendre TELS QUELS (mêmes technos, mêmes valeurs), ne substitue rien.\n` : ''}
 Structure EXACTE (markdown, sections dans cet ordre) :
 
 ## Récapitulatif
