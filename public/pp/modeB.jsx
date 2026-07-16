@@ -619,7 +619,7 @@ function ModeB({ toast, search = '' }) {
         recs.filter(rec => selected.includes(rec.id)).map(async rec => {
           const res = byId[rec.id];
           if (!res) return { ...rec, res: null, content: '' };
-          const content = await apiLoadResourceFile(res.file_path);
+          const content = await apiLoadResourceFile(res.path);
           return { ...rec, res, content: content || '' };
         })
       );
@@ -645,7 +645,7 @@ function ModeB({ toast, search = '' }) {
 
       // Generate PS1 (includes memory registers + optional docs)
       const slashCmds = recsWithContent
-        .filter(r => r.res && (r.res.type === 'slash-command' || r.res.type === 'workflow') && r.res.file_path);
+        .filter(r => r.res && (r.res.type === 'slash-command' || r.res.type === 'workflow') && r.res.path);
       const ps1 = buildPS1(project, md, slashCmds.map(r => r.res), allDocsResult);
       setPs1Content(ps1);
 

@@ -47,12 +47,8 @@ function App() {
           <button className={mode === 'A' ? 'active' : ''} onClick={() => switchMode('A')}>
             Prompts XML
           </button>
-          <button className={mode === 'B' ? 'active' : ''} onClick={() => switchMode('B')}>
-            Claude Code
-          </button>
-          <button className={mode === 'C' ? 'active' : ''} onClick={() => switchMode('C')}
-            style={mode !== 'C' ? {} : {}}>
-            Fable Booster
+          <button className={mode === 'Forge' ? 'active' : ''} onClick={() => switchMode('Forge')}>
+            Forge
           </button>
         </div>
 
@@ -74,8 +70,7 @@ function App() {
       </div>
 
       {mode === 'A' && <ModeA toast={toast} search={search} setSearch={setSearch} />}
-      {mode === 'B' && <ModeB toast={toast} search={search} />}
-      {mode === 'C' && <ModeC toast={toast} />}
+      {mode === 'Forge' && <ModeForge toast={toast} search={search} />}
 
       <ToastHost toasts={toasts} />
     </div>

@@ -63,7 +63,32 @@ async function apiLoadResourceFile(filePath) {
 
 // ── Mode B: analyze project → recommend resources ─────────
 async function apiRecommendResources(project, conversation, resources) {
-  const resList = resources.map(r =>
+  // Le catalogue complet (100+ ressources) dépasse MAX_MESSAGE_LENGTH une fois
+  // sérialisé avec le reste du prompt. Pré-filtrer avant l'appel Claude plutôt
+  // que de tronquer les descriptions (insuffisant : même sans description le
+  // catalogue entier dépasse déjà la limite).
+  // NB : tags/category viennent de /resources toujours vides/hardcodés
+  // (SKILL.md n'a que name/description en frontmatter) — le score se base
+  // donc sur le recouvrement de mots entre le projet et name+description.
+  const stopwords = new Set(['avec','sans','pour','dans','sur','les','des','une','aux','par']);
+  const tokens = `${project.desc} ${project.stack||''} ${project.goals||''}`
+    .toLowerCase()
+    .split(/[^a-zà-ÿ0-9]+/)
+    .filter(w => w.length >= 4 && !stopwords.has(w));
+  const keywordSet = new Set(tokens);
+
+  const candidates = resources
+    .map(r => {
+      const haystack = `${r.name} ${r.description}`.toLowerCase();
+      let score = 0;
+      for (const w of keywordSet) if (haystack.includes(w)) score += 1;
+      return { r, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 30)
+    .map(s => s.r);
+
+  const resList = candidates.map(r =>
     `- id:"${r.id}" name:"${r.name}" type:${r.type} cat:${r.category} tags:[${(r.tags||[]).join(',')}] desc:"${r.description}"`
   ).join('\n');
 
@@ -434,11 +459,47 @@ Tier cible : ${tier}` }],
   return res;
 }
 
+// ── Mode Forge: LoopForge API wrappers ───────────────────
+const LF_API = 'http://localhost:8123';
+
+async function apiForgeCreateRun(objective, context = '', max_iterations = 2, quality_threshold = 8.0) {
+  const r = await fetch(`${LF_API}/runs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ objective, context, max_iterations, quality_threshold })
+  });
+  if (!r.ok) throw new Error('Erreur création run: ' + r.status);
+  return r.json();
+}
+
+async function apiForgeGetStatus(runId) {
+  const r = await fetch(`${LF_API}/runs/${runId}`);
+  if (!r.ok) throw new Error('Erreur statut: ' + r.status);
+  return r.json();
+}
+
+async function apiForgeAnswer(runId, answer) {
+  const r = await fetch(`${LF_API}/runs/${runId}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer })
+  });
+  if (!r.ok) throw new Error('Erreur réponse: ' + r.status);
+  return r.json();
+}
+
+async function apiForgeGetDocuments(runId) {
+  const r = await fetch(`${LF_API}/runs/${runId}/documents`);
+  if (!r.ok) throw new Error('Erreur documents: ' + r.status);
+  return r.json();
+}
+
 Object.assign(window, {
   claudeCall, claudeCallWith, claudeToolCall,
   apiRefinePrompt, apiRestructure, apiRefineChat,
   apiLoadResources, apiLoadResourceFile,
   apiRecommendResources, apiGenerateClaudeMd, apiBrainstormChat,
   apiGenerateAllDocs, apiGenerateGuide,
-  apiClassifyTask, apiGenerateBoostedPrompt
+  apiClassifyTask, apiGenerateBoostedPrompt,
+  apiForgeCreateRun, apiForgeGetStatus, apiForgeAnswer, apiForgeGetDocuments
 });

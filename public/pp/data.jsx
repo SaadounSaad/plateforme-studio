@@ -112,7 +112,7 @@ function buildPS1(proj, claudeMdContent, slashCmds, allDocs) {
   const todayIso = new Date().toISOString().split('T')[0];
 
   const copyLines = (slashCmds || []).map(r =>
-    `Copy-Item "$resourcesBase\\${r.file_path.replace(/\//g, '\\')}"`
+    `Copy-Item "$resourcesBase\\${r.path.replace(/\//g, '\\')}"`
     + ` "$projectPath\\.claude\\commands\\${r.id}.md" -Force`
   ).join('\n');
 
