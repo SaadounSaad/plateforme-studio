@@ -294,6 +294,7 @@ function ModeForge({ toast, search = '' }) {
   const [runId, setRunId] = React.useState(null);
   const [phase, setPhase] = React.useState('');
   const [status, setStatus] = React.useState('idle'); // idle | running | waiting_answer | done | error
+  const [errorMsg, setErrorMsg] = React.useState('');
   const [question, setQuestion] = React.useState('');
   const [options, setOptions] = React.useState(null);
   const [documents, setDocuments] = React.useState(null);
@@ -346,6 +347,7 @@ function ModeForge({ toast, search = '' }) {
           toast('ok', 'Run Forge terminé');
         } else if (s.status === 'error') {
           setStatus('error');
+          setErrorMsg(s.error || '');
           clearInterval(pollingRef.current);
           pollingRef.current = null;
           toast('err', s.error || 'Erreur du run');
@@ -390,6 +392,7 @@ function ModeForge({ toast, search = '' }) {
       toast('info', 'Run Forge démarré');
     } catch(e) {
       setStatus('error');
+      setErrorMsg(e.message);
       toast('err', 'Erreur démarrage: ' + e.message);
     } finally {
       setLoading(false);
@@ -535,6 +538,7 @@ function ModeForge({ toast, search = '' }) {
     setRunId(null);
     setPhase('');
     setStatus('idle');
+    setErrorMsg('');
     setQuestion('');
     setOptions(null);
     setDocuments(null);
@@ -640,7 +644,7 @@ function ModeForge({ toast, search = '' }) {
             {status === 'error' && (
               <div className="panelbody scroll">
                 <EmptyState icon="x" title="Erreur du run"
-                  sub="Une erreur s'est produite. Vérifie que l'API LoopForge est démarrée sur localhost:8123." />
+                  sub={errorMsg || "Une erreur s'est produite. Vérifie que l'API LoopForge est joignable."} />
               </div>
             )}
           </>
