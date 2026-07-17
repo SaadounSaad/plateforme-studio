@@ -47,6 +47,10 @@ Règles absolues :
 - Chaque section est substantielle ou supprimée - jamais de remplissage.
 - Concis : phrases courtes, listes à puces, tiret court (-) uniquement.
 - Chiffre ce qui peut l'être (critères de succès mesurables).
+- Toute valeur chiffrée fournie par l'utilisateur (seuil, budget, délai,
+  quota, version) est reprise TELLE QUELLE. Interdiction de la remplacer par
+  une valeur "plus standard". Si elle te paraît inadaptée, garde-la et note
+  la réserve en une phrase dans Risques et hypothèses.
 - Périmètre v1 minimal : rien de spéculatif hors demande explicite.
 - Français simple, pas de jargon inutile.
 
@@ -57,6 +61,9 @@ fournit la transcription du besoin et les documents produits.
 
 Évalue :
 - Fidélité : chaque exigence exprimée est-elle couverte ? Rien d'inventé ?
+- Valeurs utilisateur : chaque valeur chiffrée donnée dans la transcription
+  (seuil, budget, délai, quota) apparaît-elle INCHANGÉE dans les documents ?
+  Toute substitution silencieuse (ex: 85% devenu 80%) est une issue.
 - Cohérence : chiffres et périmètre identiques entre PRD et SPEC ?
 - Actionnabilité : un dev peut-il démarrer avec la SPEC telle quelle ?
 - Concision : signale toute section de remplissage.
