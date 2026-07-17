@@ -1,27 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createRateLimiter, getClientIp, isValidAnthropicKey, sanitizeForLog } from '@/app/api/lib/security'
 
-const ALLOWED_LANGUAGES = new Set([
-  'Auto-détect',
-  'Français',
-  'Anglais',
-  'Espagnol',
-  'Allemand',
-  'Italien',
-  'Portugais',
-  'Néerlandais',
-  'Russe',
-  'Chinois',
-  'Japonais',
-  'Arabe',
-])
+// Codes envoyés par le front (ocr-studio.html) -> libellé utilisé dans le prompt.
+const LANGUAGE_LABELS: Record<string, string> = {
+  auto: 'Auto-détect',
+  fr: 'Français',
+  en: 'Anglais',
+  es: 'Espagnol',
+  de: 'Allemand',
+  it: 'Italien',
+  pt: 'Portugais',
+  nl: 'Néerlandais',
+  ru: 'Russe',
+  zh: 'Chinois',
+  ja: 'Japonais',
+  ar: 'Arabe',
+}
+const ALLOWED_LANGUAGES = new Set(Object.keys(LANGUAGE_LABELS))
 
-const ALLOWED_STYLES = new Set([
-  'Neutre',
-  'Éloquent',
-  'Académique',
-  'Simplifié',
-])
+// Codes style envoyés par le front -> note injectée dans le prompt.
+const STYLE_NOTES: Record<string, string> = {
+  neutral: '',
+  eloquent: ' Adopte un style éloquent et littéraire.',
+  clear: ' Utilise un langage clair et accessible.',
+  formal: ' Adopte un style formel et rigoureux.',
+}
+const ALLOWED_STYLES = new Set(Object.keys(STYLE_NOTES))
 
 const MAX_TEXT_LENGTH = 10_000
 const RATE_LIMIT_WINDOW_MS = 60_000
@@ -59,29 +63,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Texte invalide' }, { status: 400 })
   }
 
-  const sourceLanguage = typeof b.sourceLanguage === 'string' ? b.sourceLanguage : 'Auto-détect'
+  const sourceLanguage = typeof b.sourceLanguage === 'string' ? b.sourceLanguage : 'auto'
   if (!ALLOWED_LANGUAGES.has(sourceLanguage)) {
     return NextResponse.json({ error: 'Langue source invalide' }, { status: 400 })
   }
 
   const targetLanguage = typeof b.targetLanguage === 'string' ? b.targetLanguage : ''
-  if (!targetLanguage || !ALLOWED_LANGUAGES.has(targetLanguage) || targetLanguage === 'Auto-détect') {
+  if (!targetLanguage || !ALLOWED_LANGUAGES.has(targetLanguage) || targetLanguage === 'auto') {
     return NextResponse.json({ error: 'Langue cible invalide' }, { status: 400 })
   }
 
-  const style = typeof b.style === 'string' ? b.style : 'Neutre'
+  const style = typeof b.style === 'string' ? b.style : 'neutral'
   if (!ALLOWED_STYLES.has(style)) {
     return NextResponse.json({ error: 'Style invalide' }, { status: 400 })
   }
 
-  const styleNote = style === 'Éloquent' ? ' Adopte un style éloquent et littéraire.'
-    : style === 'Académique' ? ' Adopte un style académique et rigoureux.'
-    : style === 'Simplifié' ? ' Utilise un langage simple et accessible.'
-    : ''
+  const styleNote = STYLE_NOTES[style] ?? ''
+  const sourceLabel = LANGUAGE_LABELS[sourceLanguage] ?? ''
+  const targetLabel = LANGUAGE_LABELS[targetLanguage] ?? targetLanguage
+  const sourceLang = sourceLanguage === 'auto' ? '' : ` depuis le ${sourceLabel}`
 
-  const sourceLang = sourceLanguage === 'Auto-détect' ? '' : ` depuis le ${sourceLanguage}`
-
-  const prompt = `Traduis le texte ci-dessous${sourceLang} vers le ${targetLanguage}.${styleNote}
+  const prompt = `Traduis le texte ci-dessous${sourceLang} vers le ${targetLabel}.${styleNote}
 
 RÈGLES :
 - Traduis UNIQUEMENT le texte, ne l'explique pas.
@@ -110,8 +112,9 @@ ${text}
     })
 
     if (!res.ok) {
-      console.error(`[api/translate] Anthropic error ${res.status} for ${ip}`)
-      return NextResponse.json({ error: 'Upstream request failed' }, { status: 502 })
+      const errBody = await res.text().catch(() => '')
+      console.error(`[api/translate] Anthropic error ${res.status} for ${ip}: ${errBody.slice(0, 500)}`)
+      return NextResponse.json({ error: `Upstream error ${res.status}: ${errBody.slice(0, 200)}` }, { status: 502 })
     }
 
     const data = await res.json()

@@ -499,6 +499,7 @@ body:not([data-theme="dark"]) .nav-theme-btn .ic-moon{display:none}
               <option value="ar">Arabe (العربية)</option>
               <option value="fr">Français</option>
               <option value="en">Anglais</option>
+              <option value="es">Espagnol</option>
             </select>
           </div>
           <div class="toolbar-sep"></div>
@@ -1485,8 +1486,12 @@ async function translateDocument() {
       })
     });
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const result = await response.json();
+    let result;
+    if (!response.ok) {
+      result = await response.json().catch(() => ({}));
+      throw new Error(result.error || `HTTP ${response.status}`);
+    }
+    result = await response.json();
 
     if (!result.translatedText) throw new Error('Réponse traduction vide.');
 
