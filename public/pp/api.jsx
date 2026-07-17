@@ -280,6 +280,57 @@ Réponds uniquement avec le contenu markdown. Adapte chaque section au stack ${s
   });
 }
 
+// ── Forge: cross-document coherence check ─────────────────
+// Reçoit les documents finaux et liste les contradictions factuelles
+// (stack, base de données, seuils chiffrés, modèle de données).
+// Les docs sont répartis sur des messages alternés user/assistant :
+// le proxy /v1/messages plafonne à 10K par message (50K total).
+async function apiCheckCoherence(docs) {
+  const entries = Object.entries(docs).filter(([, v]) => v && v.trim());
+  if (entries.length < 2) return { issues: [] };
+
+  const messages = [];
+  for (const [name, content] of entries) {
+    messages.push({ role: 'user', content: `=== DOCUMENT : ${name} ===\n${content.slice(0, 9000)}` });
+    messages.push({ role: 'assistant', content: 'Reçu.' });
+  }
+  messages.push({
+    role: 'user',
+    content: `Compare les documents ci-dessus. Liste UNIQUEMENT les contradictions factuelles entre documents :
+- technologies/stack différentes pour le même rôle (ex: SQLite dans un doc, Postgres dans un autre)
+- valeurs chiffrées divergentes (seuils, budgets, limites, versions)
+- noms de modèles de données ou d'endpoints incompatibles
+- choix d'architecture incompatibles (ex: déploiement local vs cloud)
+
+Ignore les différences de formulation, de niveau de détail ou d'omission (un doc qui ne mentionne pas un sujet n'est pas une contradiction).`
+  });
+
+  return claudeToolCall('claude-sonnet-5', {
+    system: 'Tu es un relecteur technique. Tu détectes les contradictions factuelles entre documents projet. Réponds uniquement via l\'outil fourni. Zéro contradiction = tableau vide.',
+    messages,
+    max_tokens: 1500,
+    toolName: 'report_contradictions',
+    schema: {
+      type: 'object',
+      properties: {
+        issues: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              documents: { type: 'array', items: { type: 'string' }, description: 'Noms des documents en contradiction' },
+              sujet: { type: 'string', description: 'Sujet de la contradiction (ex: base de données)' },
+              detail: { type: 'string', description: 'Valeurs contradictoires, une phrase' }
+            },
+            required: ['documents', 'sujet', 'detail']
+          }
+        }
+      },
+      required: ['issues']
+    }
+  });
+}
+
 // ── Mode B: brainstorm chat turn ──────────────────────────
 async function apiBrainstormChat(conversation) {
   return claudeCall({
@@ -522,5 +573,6 @@ Object.assign(window, {
   apiRecommendResources, apiGenerateClaudeMd, apiBrainstormChat,
   apiGenerateAllDocs, apiGenerateGuide,
   apiClassifyTask, apiGenerateBoostedPrompt,
-  apiForgeCreateRun, apiForgeGetStatus, apiForgeAnswer, apiForgeGetDocuments
+  apiForgeCreateRun, apiForgeGetStatus, apiForgeAnswer, apiForgeGetDocuments,
+  apiCheckCoherence
 });

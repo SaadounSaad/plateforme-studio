@@ -114,7 +114,7 @@ function ForgeChatStep({ question, options, onAnswer, loading }) {
 // ── Livrables (PRD + SPEC + extra) ─────────────────────────
 function ForgeDeliverables({ documents, extraDocs, cost, iteration, onDownload, onDownloadAll, onCopy, toast, onComplete }) {
   const { PRD = '', SPEC = '' } = documents || {};
-  const { claudeMd = '', ps1Content = '', guide = '' } = extraDocs || {};
+  const { claudeMd = '', ps1Content = '', guide = '', coherence = null } = extraDocs || {};
   const hasExtra = claudeMd || ps1Content || guide;
 
   const mkActions = (content, filename) => (
@@ -140,6 +140,22 @@ function ForgeDeliverables({ documents, extraDocs, cost, iteration, onDownload, 
               <Icon name="download" size={13} /> Tout télécharger
             </button>
           </div>
+
+          {coherence && coherence.length > 0 && (
+            <div style={{ border: '1px solid var(--warn, #d97706)', borderRadius: 8, padding: '10px 14px', fontSize: 12.5 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>⚠ Incohérences détectées entre documents</div>
+              {coherence.map((iss, i) => (
+                <div key={i} style={{ marginBottom: 4, lineHeight: 1.5 }}>
+                  <b>{iss.sujet}</b> ({(iss.documents || []).join(' vs ')}) — {iss.detail}
+                </div>
+              ))}
+            </div>
+          )}
+          {coherence && coherence.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--mut)', padding: '2px 4px' }}>
+              ✓ Cohérence inter-documents vérifiée — aucune contradiction détectée
+            </div>
+          )}
 
           <Accordion icon="book" title="PRD" defaultOpen actions={mkActions(PRD, 'PRD.md')}>
             <pre className="code scroll" style={{ maxHeight: 300, fontSize: 11.5, padding: '14px 18px', whiteSpace: 'pre-wrap' }}>{PRD}</pre>
@@ -506,8 +522,25 @@ function ModeForge({ toast, search = '' }) {
       // Guide de démarrage
       const guide = await apiGenerateGuide(project, claudeMd, allDocsResult, conversation, decisions);
 
-      setExtraDocs({ claudeMd, ps1Content, guide, recs: recList });
-      toast('ok', `Projet complété — ${recList.length} ressources, CLAUDE.md, PS1, guide générés`);
+      // Passe de cohérence croisée : détecte les contradictions factuelles
+      // entre documents (stack, seuils, modèle de données). Non bloquant.
+      let coherence = null;
+      try {
+        const res = await apiCheckCoherence({
+          PRD: documents.PRD, SPEC: documents.SPEC,
+          'CLAUDE.md': claudeMd, guide
+        });
+        coherence = res.issues || [];
+      } catch(e) {
+        // Vérification indisponible — ne pas bloquer la livraison
+      }
+
+      setExtraDocs({ claudeMd, ps1Content, guide, recs: recList, coherence });
+      if (coherence && coherence.length > 0) {
+        toast('info', `${coherence.length} incohérence(s) détectée(s) entre documents — voir l'encart`);
+      } else {
+        toast('ok', `Projet complété — ${recList.length} ressources, CLAUDE.md, PS1, guide générés`);
+      }
     } catch(e) {
       toast('err', 'Erreur complétion: ' + e.message);
     } finally {
