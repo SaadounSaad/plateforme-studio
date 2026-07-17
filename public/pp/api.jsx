@@ -63,22 +63,16 @@ async function apiLoadResourceFile(filePath) {
 }
 
 // ── Mode B: analyze project → recommend resources ─────────
-async function apiRecommendResources(project, conversation, resources) {
-  // Le catalogue complet (100+ ressources) dépasse MAX_MESSAGE_LENGTH une fois
-  // sérialisé avec le reste du prompt. Pré-filtrer avant l'appel Claude plutôt
-  // que de tronquer les descriptions (insuffisant : même sans description le
-  // catalogue entier dépasse déjà la limite).
-  // NB : tags/category viennent de /resources toujours vides/hardcodés
-  // (SKILL.md n'a que name/description en frontmatter) — le score se base
-  // donc sur le recouvrement de mots entre le projet et name+description.
+
+// Pré-sélection lexicale (fallback) : recouvrement de mots projet ↔ name+description.
+function lexicalShortlist(project, resources, n = 30) {
   const stopwords = new Set(['avec','sans','pour','dans','sur','les','des','une','aux','par']);
   const tokens = `${project.desc} ${project.stack||''} ${project.goals||''}`
     .toLowerCase()
     .split(/[^a-zà-ÿ0-9]+/)
     .filter(w => w.length >= 4 && !stopwords.has(w));
   const keywordSet = new Set(tokens);
-
-  const candidates = resources
+  return resources
     .map(r => {
       const haystack = `${r.name} ${r.description}`.toLowerCase();
       let score = 0;
@@ -86,8 +80,43 @@ async function apiRecommendResources(project, conversation, resources) {
       return { r, score };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 30)
+    .slice(0, n)
     .map(s => s.r);
+}
+
+// Pré-sélection sémantique : le catalogue compact (id + name seuls, ~5KB)
+// tient sous MAX_MESSAGE_LENGTH, un appel court classe les 30 candidats.
+// Le comptage de mots ratait les ressources pertinentes sans vocabulaire
+// commun avec la description du projet (constaté sur TBconso : shortlist
+// remplie de gstack-* génériques).
+async function semanticShortlist(project, resources, n = 30) {
+  const compactList = resources.map(r => `${r.id} :: ${r.name}`).join('\n').slice(0, 9000);
+  const res = await claudeToolCall('claude-sonnet-5', {
+    system: 'Tu sélectionnes les ressources Claude Code potentiellement utiles à un projet. Large rappel : inclus tout ce qui pourrait servir, le tri fin vient après. Renvoie UNIQUEMENT via l\'outil.',
+    messages: [{ role: 'user', content: `<projet>\n${project.name}\n${project.desc}\n${project.stack || ''}\n</projet>\n\n<catalogue>\n${compactList}\n</catalogue>\n\nSélectionne les ${n} ids les plus susceptibles d'aider ce projet.` }],
+    max_tokens: 1500,
+    toolName: 'shortlist_resources',
+    schema: {
+      type: 'object',
+      properties: {
+        ids: { type: 'array', items: { type: 'string' }, description: `Jusqu'à ${n} ids du catalogue, du plus au moins pertinent` }
+      },
+      required: ['ids']
+    }
+  });
+  const byId = Object.fromEntries(resources.map(r => [r.id, r]));
+  const picked = (res.ids || []).map(id => byId[id]).filter(Boolean);
+  if (picked.length < 5) throw new Error('Shortlist sémantique trop courte');
+  return picked.slice(0, n);
+}
+
+async function apiRecommendResources(project, conversation, resources) {
+  let candidates;
+  try {
+    candidates = await semanticShortlist(project, resources);
+  } catch(e) {
+    candidates = lexicalShortlist(project, resources);
+  }
 
   const resList = candidates.map(r =>
     `- id:"${r.id}" name:"${r.name}" type:${r.type} cat:${r.category} tags:[${(r.tags||[]).join(',')}] desc:"${r.description}"`
