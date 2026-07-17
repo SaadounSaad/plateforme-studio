@@ -154,6 +154,8 @@ body:not([data-theme="dark"]) .nav-theme-btn .ic-moon{display:none}
 .drop-hint{font-size:.78rem;color:var(--ink-2);margin-bottom:1.4rem}
 .btn-browse{background:var(--red);color:var(--surface);border-radius:30px;font-weight:700;font-size:.875rem;padding:.6rem 2.25rem;transition:opacity .15s}
 .btn-browse:hover{opacity:.9}
+.btn-camera{background:transparent;color:var(--ink);border:1.5px solid var(--line);border-radius:30px;font-weight:600;font-size:.85rem;padding:.55rem 1.4rem;margin-left:.6rem;transition:border-color .15s,color .15s,background .15s;font-family:var(--f-sans)}
+.btn-camera:hover{border-color:var(--ink-3);background:var(--paper-2)}
 .upload-loading{display:none;text-align:center;padding:3rem 2rem}
 .upload-loading p{color:var(--ink-2);font-size:.875rem;margin-top:1rem;font-weight:500}
 
@@ -388,6 +390,8 @@ body:not([data-theme="dark"]) .nav-theme-btn .ic-moon{display:none}
           <p class="drop-title">Déposez vos documents ici ou coller</p>
           <p class="drop-hint">PDF, PNG, JPG jusqu'à 50 Mo</p>
           <button class="btn-browse" id="browseBtn">Parcourir les fichiers</button>
+          <button class="btn-camera" id="cameraBtn" type="button">📷 Prendre une photo</button>
+          <input type="file" id="cameraInput" hidden accept="image/*" capture="environment"/>
         </div>
         <div class="upload-loading" id="uploadLoading">
           <div class="ocr-spinner"></div>
@@ -778,6 +782,8 @@ claudeApiKeyInput.addEventListener('keydown', e => {
 
 /* File upload */
 browseBtn.addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
+cameraBtn.addEventListener('click', e => { e.stopPropagation(); cameraInput.click(); });
+cameraInput.addEventListener('change', () => { if (cameraInput.files[0]) handleFile(cameraInput.files[0]); });
 dropZone.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
 
